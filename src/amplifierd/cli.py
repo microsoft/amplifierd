@@ -78,10 +78,25 @@ def serve(
     effective_port = port if port is not None else settings.port
     effective_log_level = log_level if log_level is not None else settings.log_level
 
+    # 1. Console logging (always available before daemon session dir)
     logging.basicConfig(
         level=_LOG_LEVELS.get(effective_log_level.lower(), logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+
+    # 2. Create daemon session directory and route all output to serve.log
+    from amplifierd.daemon_session import create_session_dir, setup_session_log
+
+    session_path = create_session_dir(
+        settings.daemon_sessions_dir,
+        host=effective_host,
+        port=effective_port,
+        log_level=effective_log_level,
+    )
+    setup_session_log(session_path)
+
+    # Store the daemon session path in env so the app lifespan can pick it up
+    os.environ["_AMPLIFIERD_DAEMON_SESSION_PATH"] = str(session_path)
 
     click.echo(
         f"amplifierd starting – host={effective_host} port={effective_port} "

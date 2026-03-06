@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SETTINGS_DIR = Path.home() / ".amplifierd"
+_DEFAULT_HOME_DIR = Path.home() / ".amplifierd"
 
 WELL_KNOWN_BUNDLES: dict[str, str] = {
     "foundation": "git+https://github.com/microsoft/amplifier-foundation@main",
@@ -57,9 +57,8 @@ class DaemonSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8410
     default_working_dir: Path | None = None
-    sessions_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".amplifier" / "sessions"
-    )
+    home_dir: Path = Field(default_factory=lambda: _DEFAULT_HOME_DIR)
+    sessions_dir: Path = Field(default_factory=lambda: Path.home() / ".amplifier" / "sessions")
     log_level: str = "info"
     disabled_plugins: list[str] = Field(default_factory=list)
     bundles: dict[str, str] = Field(default_factory=lambda: dict(WELL_KNOWN_BUNDLES))
@@ -68,14 +67,34 @@ class DaemonSettings(BaseSettings):
     # Class-level storage for settings_dir (used by settings_customise_sources).
     # Not thread-safe: concurrent construction would race on this value.
     # Acceptable — this runs once at daemon startup, not on a hot path.
-    _current_settings_dir: Path = _DEFAULT_SETTINGS_DIR
+    _current_settings_dir: Path = _DEFAULT_HOME_DIR
+
+    @property
+    def daemon_sessions_dir(self) -> Path:
+        """Per-daemon-run session logs: ``{home_dir}/sessions/``."""
+        return self.home_dir / "sessions"
+
+    @property
+    def daemon_logs_dir(self) -> Path:
+        """Daemon-level log directory: ``{home_dir}/logs/``."""
+        return self.home_dir / "logs"
+
+    @property
+    def plugins_dir(self) -> Path:
+        """Plugin data directory: ``{home_dir}/plugins/``."""
+        return self.home_dir / "plugins"
+
+    @property
+    def run_dir(self) -> Path:
+        """Runtime directory for PID files: ``{home_dir}/run/``."""
+        return self.home_dir / "run"
 
     model_config = {"env_prefix": "AMPLIFIERD_"}
 
     def __init__(self, *, _settings_dir: Path | None = None, **kwargs: Any) -> None:
         # Temporarily set on class so settings_customise_sources can read it
         original = DaemonSettings._current_settings_dir
-        DaemonSettings._current_settings_dir = _settings_dir or _DEFAULT_SETTINGS_DIR
+        DaemonSettings._current_settings_dir = _settings_dir or _DEFAULT_HOME_DIR
         try:
             super().__init__(**kwargs)
         finally:

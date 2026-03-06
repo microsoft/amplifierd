@@ -23,12 +23,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Manage startup and shutdown of the daemon."""
+    import os
+    from pathlib import Path
+
     # --- Startup ---
     app.state.start_time = time.time()
     app.state.background_tasks = set()
 
     settings: DaemonSettings = getattr(app.state, "settings", DaemonSettings())
     app.state.settings = settings
+
+    # Daemon session path (created by cli.py before uvicorn starts)
+    daemon_session_env = os.environ.get("_AMPLIFIERD_DAEMON_SESSION_PATH")
+    app.state.daemon_session_path = Path(daemon_session_env) if daemon_session_env else None
 
     app.state.event_bus = EventBus()
 
@@ -72,6 +79,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
 
     # Plugin discovery — resilient
+    plugin_names: list[str] = []
     try:
         plugins = discover_plugins(
             disabled=settings.disabled_plugins,
@@ -79,9 +87,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
         for name, router in plugins:
             app.include_router(router)
+            plugin_names.append(name)
             logger.info("Mounted plugin: %s", name)
     except Exception:
         logger.warning("Plugin discovery failed; starting without plugins")
+
+    # Update daemon session meta.json with discovered plugins
+    if app.state.daemon_session_path and plugin_names:
+        from amplifierd.daemon_session import update_session_meta
+
+        update_session_meta(app.state.daemon_session_path, {"plugins": plugin_names})
 
     yield
 
