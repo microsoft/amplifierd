@@ -84,11 +84,29 @@ def serve(
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    # 2. Create daemon session directory and route all output to serve.log
+    # 2. Global rotating server.log — survives across individual daemon sessions
+    from logging.handlers import RotatingFileHandler
+
+    global_log_dir = settings.daemon_logs_dir
+    global_log_dir.mkdir(parents=True, exist_ok=True)
+    global_handler = RotatingFileHandler(
+        str(global_log_dir / "server.log"),
+        maxBytes=10_485_760,  # 10MB
+        backupCount=3,
+        encoding="utf-8",
+    )
+    global_handler.setFormatter(
+        logging.Formatter(
+            '{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
+        )
+    )
+    logging.getLogger().addHandler(global_handler)
+
+    # 3. Create daemon session directory and route all output to serve.log
     from amplifierd.daemon_session import create_session_dir, setup_session_log
 
     session_path = create_session_dir(
-        settings.daemon_sessions_dir,
+        settings.daemon_run_dir,
         host=effective_host,
         port=effective_port,
         log_level=effective_log_level,
@@ -96,7 +114,7 @@ def serve(
     setup_session_log(session_path)
 
     # Store the daemon session path in env so the app lifespan can pick it up
-    os.environ["_AMPLIFIERD_DAEMON_SESSION_PATH"] = str(session_path)
+    os.environ["AMPLIFIERD_DAEMON_SESSION_PATH"] = str(session_path)
 
     click.echo(
         f"amplifierd starting – host={effective_host} port={effective_port} "

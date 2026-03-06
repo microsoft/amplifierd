@@ -63,6 +63,7 @@ class DaemonSettings(BaseSettings):
     disabled_plugins: list[str] = Field(default_factory=list)
     bundles: dict[str, str] = Field(default_factory=lambda: dict(WELL_KNOWN_BUNDLES))
     default_bundle: str | None = "distro"
+    daemon_session_path: Path | None = None
 
     # Class-level storage for settings_dir (used by settings_customise_sources).
     # Not thread-safe: concurrent construction would race on this value.
@@ -70,8 +71,8 @@ class DaemonSettings(BaseSettings):
     _current_settings_dir: Path = _DEFAULT_HOME_DIR
 
     @property
-    def daemon_sessions_dir(self) -> Path:
-        """Per-daemon-run session logs: ``{home_dir}/sessions/``."""
+    def daemon_run_dir(self) -> Path:
+        """Per-daemon-run log directory: ``{home_dir}/sessions/``."""
         return self.home_dir / "sessions"
 
     @property

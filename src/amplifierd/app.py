@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Manage startup and shutdown of the daemon."""
-    import os
-    from pathlib import Path
-
     # --- Startup ---
     app.state.start_time = time.time()
     app.state.background_tasks = set()
@@ -33,9 +30,22 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings: DaemonSettings = getattr(app.state, "settings", DaemonSettings())
     app.state.settings = settings
 
-    # Daemon session path (created by cli.py before uvicorn starts)
-    daemon_session_env = os.environ.get("_AMPLIFIERD_DAEMON_SESSION_PATH")
-    app.state.daemon_session_path = Path(daemon_session_env) if daemon_session_env else None
+    # Daemon session path (created by cli.py before uvicorn starts; read via pydantic-settings)
+    app.state.daemon_session_path = settings.daemon_session_path
+
+    # Wire up session log in worker process (needed for --reload where worker is a fresh process)
+    if app.state.daemon_session_path and app.state.daemon_session_path.exists():
+        import sys
+
+        from amplifierd.daemon_session import _TeeWriter, setup_session_log
+
+        if not isinstance(sys.stdout, _TeeWriter):
+            setup_session_log(app.state.daemon_session_path)
+
+    if app.state.daemon_session_path:
+        from amplifierd.daemon_session import update_session_meta
+
+        update_session_meta(app.state.daemon_session_path, {"status": "running"})
 
     app.state.event_bus = EventBus()
 
@@ -101,6 +111,19 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
 
     # --- Shutdown ---
+    if app.state.daemon_session_path:
+        from datetime import UTC, datetime
+
+        from amplifierd.daemon_session import update_session_meta
+
+        update_session_meta(
+            app.state.daemon_session_path,
+            {
+                "status": "stopped",
+                "end_time": datetime.now(tz=UTC).isoformat(),
+            },
+        )
+
     await app.state.session_manager.shutdown()
 
 
