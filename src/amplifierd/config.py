@@ -67,9 +67,7 @@ class DaemonSettings(BaseSettings):
     port: int = 8410
     default_working_dir: Path | None = None
     home_dir: Path = Field(default_factory=lambda: _DEFAULT_HOME_DIR)
-    projects_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".amplifier" / "projects"
-    )
+    projects_dir: Path = Field(default_factory=lambda: Path.home() / ".amplifier" / "projects")
     log_level: str = "info"
     disabled_plugins: list[str] = Field(default_factory=list)
     bundles: dict[str, str] = Field(default_factory=lambda: dict(WELL_KNOWN_BUNDLES))
@@ -85,11 +83,6 @@ class DaemonSettings(BaseSettings):
     def daemon_run_dir(self) -> Path:
         """Per-daemon-run log directory: ``{home_dir}/sessions/``."""
         return self.home_dir / "sessions"
-
-    @property
-    def daemon_logs_dir(self) -> Path:
-        """Daemon-level log directory: ``{home_dir}/logs/``."""
-        return self.home_dir / "logs"
 
     @property
     def plugins_dir(self) -> Path:

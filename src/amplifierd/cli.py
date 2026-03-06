@@ -84,25 +84,7 @@ def serve(
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    # 2. Global rotating server.log — survives across individual daemon sessions
-    from logging.handlers import RotatingFileHandler
-
-    global_log_dir = settings.daemon_logs_dir
-    global_log_dir.mkdir(parents=True, exist_ok=True)
-    global_handler = RotatingFileHandler(
-        str(global_log_dir / "server.log"),
-        maxBytes=10_485_760,  # 10MB
-        backupCount=3,
-        encoding="utf-8",
-    )
-    global_handler.setFormatter(
-        logging.Formatter(
-            '{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
-        )
-    )
-    logging.getLogger().addHandler(global_handler)
-
-    # 3. Create daemon session directory and route all output to serve.log
+    # 2. Create daemon session directory and route all output to serve.log
     from amplifierd.daemon_session import create_session_dir, setup_session_log
 
     session_path = create_session_dir(
