@@ -354,6 +354,10 @@ class SessionManager:
         # 3. Load metadata to determine bundle and working_dir
         metadata = await asyncio.to_thread(load_metadata, session_dir)
         bundle_name = metadata.get("bundle", self._settings.default_bundle or "unknown")
+        # The CLI stores "bundle:mine" as a display convention; the registry
+        # expects the bare name "mine".  Strip the prefix before loading.
+        if bundle_name.startswith("bundle:"):
+            bundle_name = bundle_name[len("bundle:"):]
         working_dir = metadata.get("working_dir", str(Path.home()))
 
         # 4. Load bundle, inject providers, prepare, create session
