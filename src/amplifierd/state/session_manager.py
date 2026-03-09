@@ -103,9 +103,7 @@ class SessionManager:
         if self._index:
             entry = self._index.get(session_id)
             if entry and entry.project_id:
-                candidate = (
-                    self._projects_dir / entry.project_id / "sessions" / session_id
-                )
+                candidate = self._projects_dir / entry.project_id / "sessions" / session_id
                 if candidate.exists():
                     return candidate
 
@@ -347,8 +345,7 @@ class SessionManager:
                 )
         except ImportError:
             logger.warning(
-                "amplifier_foundation.session helpers not available; "
-                "skipping orphan handling"
+                "amplifier_foundation.session helpers not available; skipping orphan handling"
             )
 
         # 3. Load metadata to determine bundle and working_dir
@@ -357,11 +354,22 @@ class SessionManager:
         # The CLI stores "bundle:mine" as a display convention; the registry
         # expects the bare name "mine".  Strip the prefix before loading.
         if bundle_name.startswith("bundle:"):
-            bundle_name = bundle_name[len("bundle:"):]
+            bundle_name = bundle_name[len("bundle:") :]
         working_dir = metadata.get("working_dir", str(Path.home()))
 
         # 4. Load bundle, inject providers, prepare, create session
-        bundle = await self._bundle_registry.load(bundle_name)
+        fallback = self._settings.default_bundle or "distro"
+        try:
+            bundle = await self._bundle_registry.load(bundle_name)
+        except Exception:
+            if bundle_name == fallback:
+                raise
+            logger.warning(
+                "Bundle %r not available, falling back to %r",
+                bundle_name,
+                fallback,
+            )
+            bundle = await self._bundle_registry.load(fallback)
 
         from amplifierd.providers import inject_providers, load_provider_config
 
@@ -384,9 +392,7 @@ class SessionManager:
 
             # Re-inject system prompt if transcript lacks one
             restored = await context.get_messages()
-            if system_msgs and not any(
-                m.get("role") == "system" for m in restored
-            ):
+            if system_msgs and not any(m.get("role") == "system" for m in restored):
                 await context.set_messages(system_msgs + list(restored))
 
         # 6. Register persistence hooks
