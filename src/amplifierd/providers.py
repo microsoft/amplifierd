@@ -72,31 +72,88 @@ def expand_env_vars(value: Any) -> Any:
     return value
 
 
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overlay* into *base*.
+
+    - Nested dicts are merged recursively (overlay wins on leaf conflicts).
+    - All other types: overlay value replaces base value.
+    """
+    result = base.copy()
+    for key, value in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _merge_provider_item(
+    bundle_item: dict[str, Any], settings_item: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge a single settings provider entry on top of a bundle provider entry.
+
+    The ``config`` sub-dict is deep-merged so that bundle-specific keys
+    (e.g. ``debug``, ``default_model``) survive when settings only provides
+    runtime keys (e.g. ``api_key``, ``base_url``).  All other top-level
+    fields (``source``, ``module``, etc.) are taken from settings when present.
+    """
+    merged = bundle_item.copy()
+    for key, value in settings_item.items():
+        if key == "config" and key in merged:
+            if isinstance(merged["config"], dict) and isinstance(value, dict):
+                merged["config"] = _deep_merge(merged["config"], value)
+            else:
+                merged["config"] = value
+        else:
+            merged[key] = value
+    return merged
+
+
 def merge_settings_providers(
     existing: list[dict[str, Any]], settings_providers: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Merge settings providers into an existing provider list.
 
-    Settings override bundle providers by module ID.
-    Environment variables in settings values are expanded.
+    Semantics:
+
+    * **Bundle has providers** -- settings can only *update* providers the
+      bundle already declared.  New providers from settings are silently
+      dropped.  Matching providers are deep-merged (``config`` sub-dict is
+      merged recursively; other top-level fields are replaced).
+    * **Bundle has no providers** (provider-agnostic bundle) -- the full
+      settings provider list is used as-is so the session has something to
+      work with.
+
+    Environment variable references (``${VAR}``) are **not** expanded here.
+    Expansion happens later in ``inject_providers`` after the merge, so that
+    bundle-owned values survive when an env var is unset in the daemon.
 
     Args:
         existing: Current provider list (from bundle).
         settings_providers: Provider config list from load_provider_config().
 
     Returns:
-        Merged provider list with env vars expanded.
+        Merged provider list (env vars still unexpanded).
     """
     if not settings_providers:
         return list(existing)
-    expanded = expand_env_vars(settings_providers)
-    by_module: dict[str, dict[str, Any]] = {
-        p["module"]: p for p in existing if isinstance(p, dict) and "module" in p
+
+    # Provider-agnostic bundle: settings take over entirely.
+    if not existing:
+        return list(settings_providers)
+
+    # Bundle declares providers: settings may only update matches.
+    settings_by_module: dict[str, dict[str, Any]] = {
+        p["module"]: p for p in settings_providers if isinstance(p, dict) and "module" in p
     }
-    for p in expanded:
-        if isinstance(p, dict) and "module" in p:
-            by_module[p["module"]] = p
-    return list(by_module.values())
+    result: list[dict[str, Any]] = []
+    for p in existing:
+        module_id = p.get("module") if isinstance(p, dict) else None
+        if module_id and module_id in settings_by_module:
+            result.append(_merge_provider_item(p, settings_by_module[module_id]))
+        else:
+            result.append(p)
+    return result
 
 
 def inject_providers(bundle: Any, providers: list[dict[str, Any]]) -> None:
@@ -105,10 +162,16 @@ def inject_providers(bundle: Any, providers: list[dict[str, Any]]) -> None:
     Must be called BEFORE bundle.prepare() so that the activation step
     downloads and installs provider dependencies (e.g. the anthropic SDK).
 
+    The merge preserves the bundle's provider list as a whitelist -- settings
+    can configure existing providers but never inject new ones.  Environment
+    variables are expanded *after* the merge so that bundle-owned config
+    keys survive when a ${VAR} resolves to empty in the daemon.
+
     Args:
         bundle: An AmplifierBundle instance (has .providers list).
         providers: Provider config list from load_provider_config().
     """
     if not providers:
         return
-    bundle.providers = merge_settings_providers(bundle.providers, providers)
+    merged = merge_settings_providers(bundle.providers, providers)
+    bundle.providers = expand_env_vars(merged)
