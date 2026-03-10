@@ -77,6 +77,10 @@ class DaemonSettings(BaseSettings):
     # Security — opt-in, defaults preserve current localhost-only behavior
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
     api_key: str | None = None
+    tls_mode: str = "off"  # off | auto | manual
+    tls_certfile: str | None = None
+    tls_keyfile: str | None = None
+    auth_enabled: bool = False
 
     # Class-level storage for settings_dir (used by settings_customise_sources).
     # Not thread-safe: concurrent construction would race on this value.

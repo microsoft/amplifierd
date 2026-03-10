@@ -19,6 +19,23 @@ def _restore_root_handlers():
     logging.getLogger().handlers = original_handlers
 
 
+@pytest.fixture(autouse=True)
+def _clean_security_env_vars():
+    """Remove security env vars set by CLI serve function to prevent cross-test leakage."""
+    import os
+
+    _SECURITY_VARS = [
+        "AMPLIFIERD_API_KEY",
+        "AMPLIFIERD_TLS_MODE",
+        "AMPLIFIERD_TLS_CERTFILE",
+        "AMPLIFIERD_TLS_KEYFILE",
+        "AMPLIFIERD_AUTH_ENABLED",
+    ]
+    yield
+    for var in _SECURITY_VARS:
+        os.environ.pop(var, None)
+
+
 class TestServeHelp:
     """CliRunner invoke of main with ['serve', '--help'] should exit 0
     and output should contain '--port', '--host', '--reload'."""
@@ -63,6 +80,7 @@ class TestServeDefaults:
             patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
             patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
             patch("amplifierd.daemon_session.setup_session_log"),
+            patch("amplifierd.security.tls.resolve_tls", return_value={}),
         ):
             result = runner.invoke(main, ["serve"])
 
@@ -92,6 +110,7 @@ class TestServeCLIOverrides:
             patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
             patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
             patch("amplifierd.daemon_session.setup_session_log"),
+            patch("amplifierd.security.tls.resolve_tls", return_value={}),
         ):
             result = runner.invoke(
                 main, ["serve", "--host", "0.0.0.0", "--port", "9000", "--log-level", "debug"]
@@ -119,6 +138,7 @@ class TestServeCLIOverrides:
             patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
             patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
             patch("amplifierd.daemon_session.setup_session_log"),
+            patch("amplifierd.security.tls.resolve_tls", return_value={}),
         ):
             result = runner.invoke(main, ["serve", "--reload"])
 
@@ -199,6 +219,49 @@ class TestServeLogging:
         assert result.exit_code == 0
         call_kwargs = mock_basic_config.call_args[1]
         assert call_kwargs["level"] == logging.DEBUG
+
+
+class TestServeTlsFlags:
+    """serve --tls and --ssl-* flags appear in help and set env vars."""
+
+    def test_serve_help_contains_tls_flag(self) -> None:
+        runner = CliRunner()
+        result: Result = runner.invoke(main, ["serve", "--help"])
+        assert "--tls" in result.output
+
+    def test_serve_help_contains_ssl_certfile_flag(self) -> None:
+        runner = CliRunner()
+        result: Result = runner.invoke(main, ["serve", "--help"])
+        assert "--ssl-certfile" in result.output
+
+    def test_serve_help_contains_ssl_keyfile_flag(self) -> None:
+        runner = CliRunner()
+        result: Result = runner.invoke(main, ["serve", "--help"])
+        assert "--ssl-keyfile" in result.output
+
+    def test_serve_help_contains_no_auth_flag(self) -> None:
+        runner = CliRunner()
+        result: Result = runner.invoke(main, ["serve", "--help"])
+        assert "--no-auth" in result.output
+
+    def test_tls_flags_accepted_without_error(self) -> None:
+        """serve accepts --tls, --ssl-certfile, --ssl-keyfile, --no-auth without error."""
+        mock_settings = MagicMock()
+        mock_settings.host = "127.0.0.1"
+        mock_settings.port = 8410
+        mock_settings.log_level = "info"
+
+        runner = CliRunner()
+        with (
+            patch("uvicorn.run"),
+            patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
+            patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
+            patch("amplifierd.daemon_session.setup_session_log"),
+            patch("amplifierd.security.tls.resolve_tls", return_value={}),
+        ):
+            result = runner.invoke(main, ["serve", "--tls", "auto", "--no-auth"])
+
+        assert result.exit_code == 0
 
 
 class TestServeApiKeyFlag:
