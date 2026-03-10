@@ -103,18 +103,37 @@ error handling, and dependency injection.
 amplifierd uses a plugin system based on Python entry points. See
 `docs/plugins.md` for the full guide on authoring and registering plugins.
 
+## File an Issue First
+
+**Before opening a PR, file an issue.** This is the most important guideline in
+this document.
+
+The team is small and moves fast. A well-defined issue lets us evaluate the
+problem, consider how it fits with work already in progress, and often address
+it with a design that matches our current direction. This is faster and more
+productive for everyone than reviewing a PR that may not align with where
+things are heading.
+
+A good issue includes:
+- What you're seeing or what you want to change
+- Why it matters (use case, bug impact, etc.)
+- Any relevant context (error output, environment details)
+
+We will respond to issues. If a PR makes sense as the next step, we'll say so.
+
 ## PR Guidelines
 
+If you do open a PR (ideally after discussion on an issue):
+
 - **Keep PRs focused.** One logical change per PR. If you find an unrelated
-  issue while working, file it separately or submit it as a separate PR.
+  issue while working, file it separately.
 - **Include tests.** New functionality needs tests. Bug fixes should include a
   test that would have caught the bug.
 - **Run quality checks before submitting.** Format, lint, and type check your
   code. PRs that fail these checks will be sent back.
-- **Write a clear description.** Explain what the PR does and why. Link to
-  relevant issues if they exist.
-- **Expect review.** The team is small, but every PR gets reviewed. This is not
-  a gate -- it is how we learn from each other and catch issues early.
+- **Write a clear description.** Explain what the PR does and why. Link to the
+  issue it addresses.
+- **Expect review.** The team is small, but every PR gets reviewed.
 
 ## Experimental Status
 

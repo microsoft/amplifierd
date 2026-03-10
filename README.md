@@ -99,12 +99,6 @@ See [docs/api-usage.md](docs/api-usage.md) for the full guide on driving amplifi
 | Document | Description |
 |----------|-------------|
 | [docs/api-usage.md](docs/api-usage.md) | HTTP and SSE client guide, endpoint reference |
-| [docs/plugins.md](docs/plugins.md) | Plugin authoring and configuration |
+| [docs/plugins.md](docs/plugins.md) | Plugin authoring, security layer, and auth plugin contract |
 | [docs/bundles.md](docs/bundles.md) | Bundle management |
-| [docs/terminology.md](docs/terminology.md) | Terminology mapping for user-facing surfaces |
-| [docs/relationship-to-distro.md](docs/relationship-to-distro.md) | How amplifierd relates to distro-server |
 | [docs/design/](docs/design/) | Architecture and design docs |
-
-### A note on terminology
-
-This documentation uses precise technical terminology -- "daemon," "session," "event bus," and so on -- where technical accuracy matters. End users encountering Amplifier through product surfaces may see different language ("Amplifier service," "conversation," etc.). If you are building user-facing experiences on top of amplifierd, see [docs/terminology.md](docs/terminology.md) for the mapping between internal and user-facing terms.
