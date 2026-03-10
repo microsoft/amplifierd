@@ -16,8 +16,8 @@ _LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _PUBLIC_PATHS = {"/health", "/info", "/docs", "/redoc", "/openapi.json"}
 
 # Paths that must always be reachable even without a valid session.
-# Includes the auth endpoints themselves and static assets for the login page.
-_AUTH_PATHS = {"/login", "/logout", "/auth/me"}
+# Includes the auth endpoints themselves, static assets, and favicon.
+_AUTH_PATHS = {"/login", "/logout", "/auth/me", "/favicon.svg"}
 
 _SESSION_COOKIE = "amplifier_session"
 
@@ -78,18 +78,19 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
     fully initialised.
 
     Bypass order:
-    1. Auth paths (/login, /logout, /auth/me) -> always pass
+    1. Auth paths (/login, /logout, /auth/me, /favicon.svg) -> always pass
     2. Public paths (/health, /info, /docs, /redoc, /openapi.json) -> always pass
-    3. Valid ``amplifier_session`` cookie -> pass
-    4. HTML-accepting clients -> redirect to /login
-    5. Otherwise -> 401 JSON
+    3. Static assets (/static/*) -> always pass
+    4. Valid ``amplifier_session`` cookie -> pass
+    5. HTML-accepting clients -> redirect to /login
+    6. Otherwise -> 401 JSON
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
         path = request.url.path
 
-        # Auth and public paths are always reachable
-        if path in _AUTH_PATHS or path in _PUBLIC_PATHS:
+        # Auth, public, and static asset paths are always reachable
+        if path in _AUTH_PATHS or path in _PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
 
         # Retrieve the verify callable stored by the auth plugin at startup.
