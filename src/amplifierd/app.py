@@ -49,6 +49,23 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     app.state.event_bus = EventBus()
 
+    # Invalidate module install-state cache so that bundle.prepare() re-checks
+    # whether provider SDKs are actually installed in this venv.  The cache at
+    # ~/.amplifier/cache/install-state.json may be stale from another venv
+    # (e.g. the CLI's), causing ModuleActivator to skip installation even when
+    # packages like `anthropic` or `openai` are missing.  Invalidating is cheap
+    # — uv pip install -e is a fast no-op when packages are already present.
+    try:
+        from amplifier_foundation.modules.install_state import InstallStateManager
+        from amplifier_foundation.paths import get_amplifier_home
+
+        state = InstallStateManager(get_amplifier_home() / "cache")
+        state.invalidate()
+        state.save()
+        logger.debug("Invalidated module install-state cache")
+    except Exception:
+        logger.debug("Could not invalidate install-state cache", exc_info=True)
+
     # BundleRegistry — resilient: catches all exceptions, starts without registry
     try:
         from amplifier_foundation import BundleRegistry
