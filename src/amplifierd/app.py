@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from amplifierd.config import DaemonSettings
 from amplifierd.errors import register_error_handlers
@@ -217,5 +218,13 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
 
     for r in ALL_ROUTERS:
         app.include_router(r)
+
+    # Optional root redirect — configured via AMPLIFIERD_HOME_REDIRECT
+    if resolved_settings.home_redirect:
+        target = resolved_settings.home_redirect
+
+        @app.get("/", include_in_schema=False)
+        async def root_redirect() -> RedirectResponse:
+            return RedirectResponse(url=target)
 
     return app

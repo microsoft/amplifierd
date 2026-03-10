@@ -74,6 +74,9 @@ class DaemonSettings(BaseSettings):
     default_bundle: str | None = "distro"
     daemon_session_path: Path | None = None
 
+    # UI — optional root redirect (e.g. "/distro/")
+    home_redirect: str | None = None
+
     # Security — opt-in, defaults preserve current localhost-only behavior
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
     api_key: str | None = None
