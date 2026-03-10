@@ -274,14 +274,6 @@ class SessionManager:
         else:
             slug = ""
 
-        # Register spawn capability so delegate tool can spawn sub-sessions
-        try:
-            from amplifierd.spawn import register_spawn_capability
-
-            register_spawn_capability(session, prepared, session.session_id)
-        except (ImportError, Exception):  # noqa: BLE001
-            logger.debug("Spawn capability registration skipped", exc_info=True)
-
         handle = self.register(
             session=session,
             prepared_bundle=prepared,
@@ -289,6 +281,23 @@ class SessionManager:
             working_dir=wd,
             project_id=slug,
         )
+
+        # Register spawn capability so delegate tool can spawn sub-sessions.
+        # Must happen AFTER register() so the parent_handle is available for
+        # EventBus tree wiring in child sessions.
+        try:
+            from amplifierd.spawn import register_spawn_capability
+
+            register_spawn_capability(
+                session,
+                prepared,
+                session.session_id,
+                session_manager=self,
+                parent_handle=handle,
+            )
+        except (ImportError, Exception):  # noqa: BLE001
+            logger.debug("Spawn capability registration skipped", exc_info=True)
+
         return handle
 
     async def resume(self, session_id: str) -> SessionHandle:
@@ -400,18 +409,10 @@ class SessionManager:
 
         register_persistence_hooks(session, session_dir)
 
-        # 7. Register spawn capability
-        try:
-            from amplifierd.spawn import register_spawn_capability
-
-            register_spawn_capability(session, prepared, session_id)
-        except (ImportError, Exception):  # noqa: BLE001
-            logger.debug("Spawn capability registration skipped", exc_info=True)
-
         # Determine project_id for index entry
         project_id = session_dir.parent.parent.name if session_dir.parent.name == "sessions" else ""
 
-        # 8. Register in SessionManager
+        # 7. Register in SessionManager
         handle = self.register(
             session=session,
             prepared_bundle=prepared,
@@ -419,6 +420,22 @@ class SessionManager:
             working_dir=working_dir,
             project_id=project_id,
         )
+
+        # 8. Register spawn capability (after register() so parent_handle
+        #    is available for EventBus tree wiring in child sessions)
+        try:
+            from amplifierd.spawn import register_spawn_capability
+
+            register_spawn_capability(
+                session,
+                prepared,
+                session_id,
+                session_manager=self,
+                parent_handle=handle,
+            )
+        except (ImportError, Exception):  # noqa: BLE001
+            logger.debug("Spawn capability registration skipped", exc_info=True)
+
         logger.info(
             "Session %s resumed (%d messages restored)",
             session_id,
