@@ -41,6 +41,37 @@ def main() -> None:
     type=str,
     help="Default bundle name for sessions created without one.",
 )
+@click.option(
+    "--api-key",
+    default=None,
+    type=str,
+    help="Require API key for non-localhost requests.",
+)
+@click.option(
+    "--tls",
+    "tls_mode",
+    default=None,
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    help="TLS mode: auto (Tailscale/self-signed), manual, off.",
+)
+@click.option(
+    "--ssl-certfile",
+    default=None,
+    type=click.Path(),
+    help="Path to SSL certificate (implies --tls manual).",
+)
+@click.option(
+    "--ssl-keyfile",
+    default=None,
+    type=click.Path(),
+    help="Path to SSL private key.",
+)
+@click.option(
+    "--no-auth",
+    is_flag=True,
+    default=False,
+    help="Disable authentication even when TLS is active.",
+)
 def serve(
     host: str | None,
     port: int | None,
@@ -48,6 +79,11 @@ def serve(
     log_level: str | None,
     bundle: tuple[str, ...],
     default_bundle: str | None,
+    api_key: str | None,
+    tls_mode: str | None,
+    ssl_certfile: str | None,
+    ssl_keyfile: str | None,
+    no_auth: bool,
 ) -> None:
     """Start the amplifierd HTTP server."""
     import json
@@ -71,6 +107,20 @@ def serve(
 
     if default_bundle is not None:
         os.environ["AMPLIFIERD_DEFAULT_BUNDLE"] = default_bundle
+
+    if api_key is not None:
+        os.environ["AMPLIFIERD_API_KEY"] = api_key
+
+    if tls_mode is not None:
+        os.environ["AMPLIFIERD_TLS_MODE"] = tls_mode
+    if ssl_certfile is not None:
+        os.environ["AMPLIFIERD_TLS_CERTFILE"] = ssl_certfile
+        if tls_mode is None:
+            os.environ["AMPLIFIERD_TLS_MODE"] = "manual"
+    if ssl_keyfile is not None:
+        os.environ["AMPLIFIERD_TLS_KEYFILE"] = ssl_keyfile
+    if no_auth:
+        os.environ["AMPLIFIERD_AUTH_ENABLED"] = "false"
 
     settings = DaemonSettings()
 
@@ -98,6 +148,11 @@ def serve(
     # Store the daemon session path in env so the app lifespan can pick it up
     os.environ["AMPLIFIERD_DAEMON_SESSION_PATH"] = str(session_path)
 
+    # 3. Resolve TLS configuration (Tailscale probe + cert resolution)
+    from amplifierd.security.tls import resolve_tls
+
+    ssl_kwargs = resolve_tls(settings, effective_port)
+
     click.echo(
         f"amplifierd starting – host={effective_host} port={effective_port} "
         f"log-level={effective_log_level}"
@@ -110,6 +165,7 @@ def serve(
         reload=reload,
         log_level=effective_log_level,
         factory=True,
+        **ssl_kwargs,
     )
 
 

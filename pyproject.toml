@@ -47,6 +47,7 @@ pythonVersion = "3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["src"]
 markers = [
     "unit: unit tests",
     "integration: integration tests",

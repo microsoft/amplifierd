@@ -32,8 +32,14 @@ If you're working on amplifierd itself, use `uv run` from a local checkout:
 
 ```bash
 cd amplifierd
-uv sync
+uv sync --extra dev
 uv run amplifierd serve
+```
+
+To run the test suite:
+
+```bash
+uv run pytest
 ```
 
 ### Configuration

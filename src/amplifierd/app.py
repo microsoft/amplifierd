@@ -175,6 +175,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 def create_app(settings: DaemonSettings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
+    resolved_settings = settings or DaemonSettings()
+
     app = FastAPI(
         title="amplifierd",
         description="HTTP/SSE daemon for amplifier-core and amplifier-foundation",
@@ -185,17 +187,31 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
 
-    if settings is not None:
-        app.state.settings = settings
+    app.state.settings = resolved_settings
 
-    # CORS middleware
+    # CORS middleware — configurable via settings.allowed_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=resolved_settings.allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Session auth middleware — opt-in when auth_enabled is True.
+    # Must be added before ApiKeyMiddleware so it sits *inside* it in the
+    # Starlette middleware stack (each add_middleware call wraps the current
+    # app, making the last-added middleware the outermost layer).
+    if resolved_settings.auth_enabled:
+        from amplifierd.security.middleware import SessionAuthMiddleware
+
+        app.add_middleware(SessionAuthMiddleware)
+
+    # API key middleware — opt-in when api_key is configured
+    if resolved_settings.api_key:
+        from amplifierd.security.middleware import ApiKeyMiddleware
+
+        app.add_middleware(ApiKeyMiddleware, api_key=resolved_settings.api_key)
 
     register_error_handlers(app)
 

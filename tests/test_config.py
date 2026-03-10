@@ -106,9 +106,7 @@ class TestDaemonSettings:
         from amplifierd.config import DaemonSettings
 
         settings_file = tmp_path / "settings.json"
-        settings_file.write_text(
-            json.dumps({"bundles": {"custom": "file:///tmp/mybundle"}})
-        )
+        settings_file.write_text(json.dumps({"bundles": {"custom": "file:///tmp/mybundle"}}))
         settings = DaemonSettings(_settings_dir=tmp_path)
         assert settings.bundles == {"custom": "file:///tmp/mybundle"}
 
@@ -130,3 +128,91 @@ class TestDaemonSettings:
         monkeypatch.setenv("AMPLIFIERD_DEFAULT_BUNDLE", "foundation")
         settings = DaemonSettings(_settings_dir=tmp_path)
         assert settings.default_bundle == "foundation"
+
+    def test_allowed_origins_defaults_to_wildcard(self, tmp_path: Path):
+        """allowed_origins defaults to ['*'] (permit all)."""
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.allowed_origins == ["*"]
+
+    def test_api_key_defaults_to_none(self, tmp_path: Path):
+        """api_key defaults to None (no auth)."""
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.api_key is None
+
+    def test_allowed_origins_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """AMPLIFIERD_ALLOWED_ORIGINS env var overrides default."""
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv(
+            "AMPLIFIERD_ALLOWED_ORIGINS",
+            '["http://localhost:3000","https://my.host"]',
+        )
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.allowed_origins == ["http://localhost:3000", "https://my.host"]
+
+    def test_api_key_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """AMPLIFIERD_API_KEY env var sets the api_key."""
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_API_KEY", "my-secret-key")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.api_key == "my-secret-key"
+
+    def test_allowed_origins_from_json(self, tmp_path: Path):
+        """allowed_origins can be set from settings.json."""
+        from amplifierd.config import DaemonSettings
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text(json.dumps({"allowed_origins": ["https://example.com"]}))
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.allowed_origins == ["https://example.com"]
+
+    def test_api_key_from_json(self, tmp_path: Path):
+        """api_key can be set from settings.json."""
+        from amplifierd.config import DaemonSettings
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text(json.dumps({"api_key": "json-secret"}))
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.api_key == "json-secret"
+
+    def test_tls_mode_defaults_to_off(self, tmp_path: Path):
+        """tls_mode defaults to 'off'."""
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.tls_mode == "off"
+
+    def test_tls_certfile_defaults_to_none(self, tmp_path: Path):
+        """tls_certfile defaults to None."""
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.tls_certfile is None
+
+    def test_auth_enabled_defaults_to_false(self, tmp_path: Path):
+        """auth_enabled defaults to False."""
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.auth_enabled is False
+
+    def test_tls_mode_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """AMPLIFIERD_TLS_MODE env var overrides default."""
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_TLS_MODE", "auto")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.tls_mode == "auto"
+
+    def test_auth_enabled_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """AMPLIFIERD_AUTH_ENABLED env var overrides default."""
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_AUTH_ENABLED", "true")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.auth_enabled is True
