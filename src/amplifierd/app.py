@@ -49,6 +49,36 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     app.state.event_bus = EventBus()
 
+    # Load API keys from ~/.amplifier/keys.env into os.environ so that
+    # ${ANTHROPIC_API_KEY} etc. in settings.yaml resolve during env-var
+    # expansion.  The CLI and distro both do this at startup; without it
+    # the daemon has no API keys and providers mount without credentials.
+    try:
+        import os as _os
+        from pathlib import Path as _Path
+
+        _keys_path = _Path(_os.environ.get("AMPLIFIER_HOME", _Path.home() / ".amplifier")) / "keys.env"
+        if _keys_path.is_file():
+            _loaded = []
+            for _line in _keys_path.read_text().splitlines():
+                _line = _line.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _k, _v = _line.split("=", 1)
+                _k = _k.strip()
+                _v = _v.strip().strip('"').strip("'")
+                if _k and _k not in _os.environ:
+                    _os.environ[_k] = _v
+                    _loaded.append(_k)
+            if _loaded:
+                logger.info("Loaded %d key(s) from %s: %s", len(_loaded), _keys_path, _loaded)
+            else:
+                logger.debug("keys.env found but all keys already in environment")
+        else:
+            logger.debug("No keys.env at %s", _keys_path)
+    except Exception:
+        logger.debug("Could not load keys.env", exc_info=True)
+
     # Invalidate module install-state cache so that bundle.prepare() re-checks
     # whether provider SDKs are actually installed in this venv.  The cache at
     # ~/.amplifier/cache/install-state.json may be stale from another venv
