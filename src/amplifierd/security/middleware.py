@@ -1,4 +1,4 @@
-"""API key authentication middleware for amplifierd."""
+"""API key and session authentication middleware for amplifierd."""
 
 from __future__ import annotations
 
@@ -7,13 +7,19 @@ import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 logger = logging.getLogger(__name__)
 
 _LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 _PUBLIC_PATHS = {"/health", "/info", "/docs", "/redoc", "/openapi.json"}
+
+# Paths that must always be reachable even without a valid session.
+# Includes the auth endpoints themselves and static assets for the login page.
+_AUTH_PATHS = {"/login", "/logout", "/auth/me"}
+
+_SESSION_COOKIE = "amplifier_session"
 
 
 def is_localhost(host: str | None) -> bool:
@@ -60,4 +66,59 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid or missing API key"},
+        )
+
+
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """Enforce session cookie authentication for all non-public routes.
+
+    The auth plugin registers a ``verify_session`` callable on
+    ``app.state.auth_verify_session`` at startup.  This middleware reads that
+    callable on every request so the secret is resolved after the plugin has
+    fully initialised.
+
+    Bypass order:
+    1. Auth paths (/login, /logout, /auth/me) -> always pass
+    2. Public paths (/health, /info, /docs, /redoc, /openapi.json) -> always pass
+    3. Valid ``amplifier_session`` cookie -> pass
+    4. HTML-accepting clients -> redirect to /login
+    5. Otherwise -> 401 JSON
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        path = request.url.path
+
+        # Auth and public paths are always reachable
+        if path in _AUTH_PATHS or path in _PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Retrieve the verify callable stored by the auth plugin at startup.
+        # If it isn't present the plugin didn't load — fail open so a broken
+        # plugin doesn't lock everyone out.
+        verify = getattr(request.app.state, "auth_verify_session", None)
+        if verify is None:
+            logger.warning(
+                "SessionAuthMiddleware active but auth_verify_session not set "
+                "(auth plugin may not have loaded); passing request through"
+            )
+            return await call_next(request)
+
+        # Check the session cookie
+        session_token = request.cookies.get(_SESSION_COOKIE)
+        if session_token is not None and verify(session_token) is not None:
+            return await call_next(request)
+
+        logger.debug(
+            "Unauthenticated request to %s from %s",
+            path,
+            request.client.host if request.client else "unknown",
+        )
+
+        # Return a redirect for browser requests, plain 401 for API clients
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse(url="/login", status_code=302)
+
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"},
         )

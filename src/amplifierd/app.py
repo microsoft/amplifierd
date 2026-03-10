@@ -151,6 +151,15 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Session auth middleware — opt-in when auth_enabled is True.
+    # Must be added before ApiKeyMiddleware so it sits *inside* it in the
+    # Starlette middleware stack (each add_middleware call wraps the current
+    # app, making the last-added middleware the outermost layer).
+    if resolved_settings.auth_enabled:
+        from amplifierd.security.middleware import SessionAuthMiddleware
+
+        app.add_middleware(SessionAuthMiddleware)
+
     # API key middleware — opt-in when api_key is configured
     if resolved_settings.api_key:
         from amplifierd.security.middleware import ApiKeyMiddleware
