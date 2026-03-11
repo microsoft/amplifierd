@@ -12,6 +12,7 @@ appear on the parent session's SSE stream.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -289,15 +290,49 @@ async def _spawn_with_event_forwarding(
         )
 
     # ------------------------------------------------------------------
+    # Persistence — mirror what SessionManager.create() does for parents
+    # ------------------------------------------------------------------
+
+    # 12a. Inherit working_dir and project_id from the parent session so the
+    #      child gets its own on-disk session directory and persistence hooks.
+    #      Without this, GET /sessions/{child_id}/transcript returns 404
+    #      because resolve_session_dir() only looks on disk.
+    child_working_dir = parent_handle.working_dir or str(effective_cwd)
+    child_project_id = ""
+
+    if session_manager.projects_dir:
+        from amplifierd.config import cwd_to_slug
+        from amplifierd.persistence import register_persistence_hooks
+
+        child_project_id = cwd_to_slug(child_working_dir)
+        child_session_dir = (
+            session_manager.projects_dir / child_project_id / "sessions" / child_session.session_id
+        )
+        child_session_dir.mkdir(parents=True, exist_ok=True)
+        register_persistence_hooks(
+            child_session,
+            child_session_dir,
+            initial_metadata={
+                "session_id": child_session.session_id,
+                "created": datetime.now(tz=UTC).isoformat(),
+                "bundle": agent_name,
+                "working_dir": child_working_dir,
+                "parent_session_id": (parent_session.session_id if parent_session else None),
+            },
+        )
+
+    # ------------------------------------------------------------------
     # EventBus integration
     # ------------------------------------------------------------------
 
-    # 12. Register child in SessionManager — creates a SessionHandle whose
-    #     __init__ calls _wire_events(), hooking all kernel events to EventBus.
+    # 12b. Register child in SessionManager — creates a SessionHandle whose
+    #      __init__ calls _wire_events(), hooking all kernel events to EventBus.
     child_handle = session_manager.register(
         session=child_session,
         prepared_bundle=None,
         bundle_name=agent_name,
+        working_dir=child_working_dir,
+        project_id=child_project_id,
     )
 
     # 13. Wire parent -> child in EventBus so SSE subscribers on the parent
