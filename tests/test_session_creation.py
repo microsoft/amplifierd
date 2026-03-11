@@ -122,19 +122,19 @@ class TestCreateSessionEndpoint:
     def test_create_session_uses_prewarmed_bundle_skips_registry_load(
         self, client: TestClient
     ) -> None:
-        """POST /sessions skips registry.load() when app.state.prepared_bundle is available.
+        """POST /sessions skips registry.load() when session_manager cache is populated.
 
-        When app.state.prepared_bundle is set and the request uses the default bundle,
-        the route should pass prepared_bundle to manager.create() which skips
-        the expensive registry.load() + bundle.prepare() pipeline.
+        When session_manager has a cached PreparedBundle for the default bundle,
+        manager.create() should skip the expensive registry.load() + bundle.prepare() pipeline.
         """
         # Build a fake prepared bundle that creates a new session
         fake_session = _make_fake_session("prewarmed-session-1")
         mock_prepared = MagicMock()
         mock_prepared.create_session = AsyncMock(return_value=fake_session)
 
-        # Place it on app.state as if prewarm already ran
-        client.app.state.prepared_bundle = mock_prepared  # type: ignore[union-attr]
+        # Place it in the session_manager cache as if prewarm already ran
+        session_manager = client.app.state.session_manager  # type: ignore[union-attr]
+        session_manager.set_prepared_bundle("distro", mock_prepared)
 
         # Reset the registry's load call count
         mock_registry = client.app.state.bundle_registry  # type: ignore[union-attr]

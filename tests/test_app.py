@@ -140,11 +140,11 @@ async def test_prewarm_error_stored_in_app_state() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_prewarm_stores_prepared_bundle_on_app_state() -> None:
-    """_prewarm stores the PreparedBundle result on app.state.prepared_bundle.
+async def test_prewarm_stores_prepared_bundle_on_session_manager() -> None:
+    """_prewarm stores the PreparedBundle result on session_manager._prepared_bundles.
 
-    After prewarm completes, app.state.prepared_bundle should hold the
-    PreparedBundle returned by bundle.prepare() so subsequent session
+    After prewarm completes, session_manager._prepared_bundles[default_bundle] should
+    hold the PreparedBundle returned by bundle.prepare() so subsequent session
     creation can reuse it instead of calling prepare() again.
     """
     fake_prepared = MagicMock(name="fake_prepared_bundle")
@@ -167,17 +167,19 @@ async def test_prewarm_stores_prepared_bundle_on_app_state() -> None:
             async with app.router.lifespan_context(app):
                 await asyncio.wait_for(app.state.bundles_ready.wait(), timeout=3.0)
 
-                assert app.state.prepared_bundle is fake_prepared, (
-                    "app.state.prepared_bundle should be the PreparedBundle returned by prepare()"
+                cached = app.state.session_manager._prepared_bundles.get("test-bundle")  # noqa: SLF001
+                assert cached is fake_prepared, (
+                    "session_manager._prepared_bundles['test-bundle'] should be the "
+                    "PreparedBundle returned by prepare()"
                 )
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_prepared_bundle_initialized_to_none_in_lifespan() -> None:
-    """app.state.prepared_bundle is initialized to None at lifespan startup.
+async def test_prepared_bundle_cache_empty_before_prewarm() -> None:
+    """session_manager._prepared_bundles is empty at lifespan startup.
 
-    Before prewarm has a chance to set it, it should be None (not missing).
+    Before prewarm has a chance to populate it, the cache should be empty.
     """
     load_gate: asyncio.Event = asyncio.Event()
 
@@ -195,8 +197,8 @@ async def test_prepared_bundle_initialized_to_none_in_lifespan() -> None:
     with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
-                # Before prewarm completes, prepared_bundle should be None
-                assert app.state.prepared_bundle is None
+                # Before prewarm completes, cache should be empty
+                assert app.state.session_manager._prepared_bundles == {}  # noqa: SLF001
 
                 load_gate.set()
 

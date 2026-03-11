@@ -130,23 +130,12 @@ async def create_session(request: Request, body: CreateSessionRequest) -> dict:
             detail="Bundles are still loading. Retry shortly.",
             headers={"Retry-After": "5"},
         )
-    # Use pre-warmed PreparedBundle if available and bundle matches the default.
-    # This skips the expensive load → inject_providers → prepare pipeline on
-    # first session creation after daemon startup (saves 10-20 seconds).
-    prepared_bundle = None
     settings: DaemonSettings = request.app.state.settings
-    if not body.bundle_uri and (
-        body.bundle_name == settings.default_bundle
-        or (not body.bundle_name and settings.default_bundle)
-    ):
-        prepared_bundle = getattr(request.app.state, "prepared_bundle", None)
-
     try:
         handle = await manager.create(
             bundle_name=body.bundle_name or settings.default_bundle,
             bundle_uri=body.bundle_uri,
             working_dir=body.working_dir,
-            prepared_bundle=prepared_bundle,
         )
     except ValueError as exc:
         logger.warning("Invalid session creation request: %s", exc)
