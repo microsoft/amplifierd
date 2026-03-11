@@ -41,7 +41,16 @@ async def _prewarm(app: FastAPI) -> None:
         providers = load_provider_config()
         inject_providers(bundle, providers)
 
-        await bundle.prepare()
+        # bundle.prepare() calls ModuleActivator._install_dependencies which uses
+        # synchronous subprocess.run() (uv pip install -e). Awaiting it directly
+        # on the main event loop freezes the entire server — no other coroutines
+        # (including GET /ready) can execute while uv is running.
+        #
+        # asyncio.to_thread() offloads to a worker thread. Because prepare() is
+        # itself async (uses asyncio.gather internally), we give it a dedicated
+        # event loop inside that thread via asyncio.run(). The main uvicorn loop
+        # stays free and can respond to /ready, /health, etc. throughout.
+        await asyncio.to_thread(lambda: asyncio.run(bundle.prepare()))
 
         app.state.bundles_ready.set()
         logger.info("Bundle pre-warmed and ready: %s", settings.default_bundle)
