@@ -122,6 +122,14 @@ async def create_session(request: Request, body: CreateSessionRequest) -> dict:
                 status_code=400,
                 detail=detail.model_dump(exclude_none=True),
             )
+    # Block session creation while bundles are prewarming
+    bundles_ready = getattr(request.app.state, "bundles_ready", None)
+    if bundles_ready and not bundles_ready.is_set():
+        raise HTTPException(
+            status_code=503,
+            detail="Bundles are still loading. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
     try:
         handle = await manager.create(
             bundle_name=body.bundle_name,
@@ -184,9 +192,7 @@ async def get_session(request: Request, session_id: str) -> SessionDetail:
 
 
 @sessions_router.patch("/{session_id}")
-async def patch_session(
-    request: Request, session_id: str, body: PatchSessionRequest
-) -> dict:
+async def patch_session(request: Request, session_id: str, body: PatchSessionRequest) -> dict:
     """Patch session properties (working_dir, name).
 
     Works for both live (in-memory) and disk-only (history) sessions.
@@ -582,6 +588,14 @@ async def session_tree(request: Request, session_id: str) -> SessionTreeNode:
 async def resume_session(request: Request, session_id: str) -> dict:
     """Resume a session from disk after server restart."""
     manager: SessionManager = request.app.state.session_manager
+    # Block session resume while bundles are prewarming
+    bundles_ready = getattr(request.app.state, "bundles_ready", None)
+    if bundles_ready and not bundles_ready.is_set():
+        raise HTTPException(
+            status_code=503,
+            detail="Bundles are still loading. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
     try:
         handle = await manager.resume(session_id)
     except FileNotFoundError as exc:
@@ -682,9 +696,7 @@ async def set_mode(request: Request, session_id: str, body: SetModeRequest) -> d
         raise HTTPException(status_code=503, detail="Coordinator unavailable")
     state = getattr(coordinator, "session_state", None)
     if state is None:
-        raise HTTPException(
-            status_code=503, detail="Modes not available (hooks-mode not mounted)"
-        )
+        raise HTTPException(status_code=503, detail="Modes not available (hooks-mode not mounted)")
 
     discovery = state.get("mode_discovery")
     mode_hooks = state.get("mode_hooks")
@@ -700,7 +712,6 @@ async def set_mode(request: Request, session_id: str, body: SetModeRequest) -> d
         raise HTTPException(status_code=503, detail="Mode discovery not available")
     mode_def = discovery.find(body.mode_name)
     if not mode_def:
-        available = [n for n, _d, _s in discovery.list_modes()]
         detail = ProblemDetail(
             type=ErrorTypeURI.INVALID_REQUEST,
             title="Mode Not Found",

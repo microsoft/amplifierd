@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Generator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,6 +18,44 @@ def client() -> TestClient:
     """Create a test client from the app factory."""
     app = create_app()
     return TestClient(app)
+
+
+def _make_fake_session(session_id: str = "fake-session-1") -> SimpleNamespace:
+    """Create a minimal fake AmplifierSession for session creation tests."""
+    fake_coordinator = SimpleNamespace(
+        request_cancel=lambda immediate: None,
+        hooks=MagicMock(),
+    )
+    return SimpleNamespace(
+        session_id=session_id,
+        parent_id=None,
+        coordinator=fake_coordinator,
+        cleanup=AsyncMock(),
+        execute=AsyncMock(return_value="ok"),
+    )
+
+
+def _make_mock_registry(session_id: str = "fake-session-1") -> MagicMock:
+    """Create a mock BundleRegistry that returns fake sessions."""
+    fake_session = _make_fake_session(session_id)
+    mock_prepared = MagicMock()
+    mock_prepared.create_session = AsyncMock(return_value=fake_session)
+    mock_bundle = MagicMock()
+    mock_bundle.prepare = AsyncMock(return_value=mock_prepared)
+    mock_registry = MagicMock()
+    mock_registry.load = AsyncMock(return_value=mock_bundle)
+    return mock_registry
+
+
+@pytest.fixture()
+def session_client() -> Generator[TestClient]:
+    """Test client with lifespan + mocked bundle registry for session creation."""
+    app = create_app()
+    with TestClient(app) as c:
+        mock_registry = _make_mock_registry()
+        c.app.state.bundle_registry = mock_registry  # type: ignore[union-attr]
+        c.app.state.session_manager._bundle_registry = mock_registry  # type: ignore[union-attr]  # noqa: SLF001
+        yield c
 
 
 @pytest.mark.unit
@@ -127,3 +170,56 @@ class TestOpenAPIEndpoint:
         """GET /redoc returns 200."""
         resp = client.get("/redoc")
         assert resp.status_code == 200
+
+
+@pytest.mark.unit
+class TestReadyEndpoint:
+    """Tests for GET /ready."""
+
+    def test_ready_returns_false_during_prewarm(self, client: TestClient) -> None:
+        """GET /ready returns {ready: false} when bundles_ready event is unset."""
+        client.app.state.bundles_ready = asyncio.Event()  # unset = still loading
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is False
+
+    def test_ready_returns_true_after_prewarm(self, client: TestClient) -> None:
+        """GET /ready returns {ready: true} when bundles_ready event is set."""
+        event = asyncio.Event()
+        event.set()
+        client.app.state.bundles_ready = event
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is True
+
+    def test_ready_returns_error_on_failure(self, client: TestClient) -> None:
+        """GET /ready includes error field when prewarm_error is set."""
+        client.app.state.bundles_ready = asyncio.Event()  # unset = failed, not ready
+        client.app.state.prewarm_error = "Bundle load failed: connection timeout"
+        resp = client.get("/ready")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is False
+        assert data["error"] == "Bundle load failed: connection timeout"
+
+
+@pytest.mark.unit
+class TestPrewarmGuard503:
+    """Tests for 503 guard on session creation/resume during prewarm."""
+
+    def test_session_creation_returns_503_during_prewarm(self, session_client: TestClient) -> None:
+        """POST /sessions returns 503 with Retry-After when bundles are still loading."""
+        session_client.app.state.bundles_ready = asyncio.Event()  # unset = loading
+        resp = session_client.post("/sessions", json={"bundle_name": "test-bundle"})
+        assert resp.status_code == 503
+        assert "Retry-After" in resp.headers
+
+    def test_session_creation_works_after_prewarm(self, session_client: TestClient) -> None:
+        """POST /sessions proceeds normally when bundles_ready event is set."""
+        event = asyncio.Event()
+        event.set()
+        session_client.app.state.bundles_ready = event
+        resp = session_client.post("/sessions", json={"bundle_name": "test-bundle"})
+        assert resp.status_code == 201

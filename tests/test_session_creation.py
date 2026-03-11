@@ -52,6 +52,8 @@ def client() -> Generator[TestClient]:
         mock_registry = _make_mock_registry()
         c.app.state.bundle_registry = mock_registry  # type: ignore[union-attr]
         c.app.state.session_manager._bundle_registry = mock_registry  # type: ignore[union-attr]  # noqa: SLF001
+        # Mark bundles as ready so the 503 prewarm guard does not block tests
+        c.app.state.bundles_ready.set()  # type: ignore[union-attr]
         yield c
 
 

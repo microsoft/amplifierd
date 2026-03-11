@@ -27,6 +27,7 @@ async def _prewarm(app: FastAPI) -> None:
     try:
         registry = app.state.bundle_registry
         if not registry:
+            app.state.bundles_ready.set()
             return
         settings = app.state.settings
         if not settings.default_bundle:
@@ -179,11 +180,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.prewarm_task = None
     app.state.prewarm_error = None
 
-    # Start bundle loading in background — server yields immediately
-    prewarm_task = asyncio.create_task(_prewarm(app))
-    app.state.prewarm_task = prewarm_task
-    app.state.background_tasks.add(prewarm_task)
-    prewarm_task.add_done_callback(app.state.background_tasks.discard)
+    # Only launch background prewarm when there is real work to do (registry +
+    # default bundle configured).  Otherwise mark bundles as ready immediately
+    # so that the 503 route guard does not block session creation.
+    if app.state.bundle_registry and settings.default_bundle:
+        prewarm_task = asyncio.create_task(_prewarm(app))
+        app.state.prewarm_task = prewarm_task
+        app.state.background_tasks.add(prewarm_task)
+        prewarm_task.add_done_callback(app.state.background_tasks.discard)
+    else:
+        app.state.bundles_ready.set()
 
     yield
 
