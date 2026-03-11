@@ -170,3 +170,56 @@ class TestResumePassesSessionCwd:
         assert call_kwargs["session_cwd"] == Path(working_dir)
         assert call_kwargs["session_id"] == session_id
         assert call_kwargs["is_resumed"] is True
+
+
+class TestSessionManagerCreateWithPreparedBundle:
+    """Tests for the fast-path prepared_bundle kwarg in SessionManager.create()."""
+
+    @pytest.fixture
+    def manager_with_registry(self) -> SessionManager:
+        mock_registry = MagicMock()
+        mock_registry.load = AsyncMock()
+        return SessionManager(
+            event_bus=EventBus(),
+            settings=DaemonSettings(),
+            bundle_registry=mock_registry,
+        )
+
+    async def test_create_with_prepared_bundle_skips_registry_load(
+        self, manager_with_registry: SessionManager
+    ) -> None:
+        """create() with prepared_bundle skips registry.load() entirely."""
+        fake_session = MagicMock()
+        fake_session.session_id = "fast-session-1"
+        fake_session.parent_id = None
+
+        mock_prepared = MagicMock()
+        mock_prepared.create_session = AsyncMock(return_value=fake_session)
+
+        handle = await manager_with_registry.create(prepared_bundle=mock_prepared)
+
+        # registry.load() must NOT be called — we skipped the slow path
+        manager_with_registry._bundle_registry.load.assert_not_called()  # noqa: SLF001
+        assert handle.session_id == "fast-session-1"
+
+    async def test_create_with_prepared_bundle_calls_create_session(
+        self, manager_with_registry: SessionManager
+    ) -> None:
+        """create() with prepared_bundle calls create_session() on the PreparedBundle."""
+        fake_session = MagicMock()
+        fake_session.session_id = "fast-session-2"
+        fake_session.parent_id = None
+
+        mock_prepared = MagicMock()
+        mock_prepared.create_session = AsyncMock(return_value=fake_session)
+
+        await manager_with_registry.create(prepared_bundle=mock_prepared)
+
+        mock_prepared.create_session.assert_awaited_once()
+
+    async def test_create_without_bundle_info_raises_mentioning_prepared_bundle(
+        self, manager_with_registry: SessionManager
+    ) -> None:
+        """create() error message mentions prepared_bundle as a third option."""
+        with pytest.raises(ValueError, match="prepared_bundle"):
+            await manager_with_registry.create()

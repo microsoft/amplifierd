@@ -140,6 +140,69 @@ async def test_prewarm_error_stored_in_app_state() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_prewarm_stores_prepared_bundle_on_app_state() -> None:
+    """_prewarm stores the PreparedBundle result on app.state.prepared_bundle.
+
+    After prewarm completes, app.state.prepared_bundle should hold the
+    PreparedBundle returned by bundle.prepare() so subsequent session
+    creation can reuse it instead of calling prepare() again.
+    """
+    fake_prepared = MagicMock(name="fake_prepared_bundle")
+    fake_prepared.create_session = AsyncMock()
+
+    async def instant_load(source: str) -> SimpleNamespace:
+        bundle = _make_fake_bundle()
+        bundle.prepare = AsyncMock(return_value=fake_prepared)
+        return bundle
+
+    mock_registry = MagicMock()
+    mock_registry.load = instant_load
+    mock_registry.register = MagicMock()
+
+    settings = DaemonSettings(default_bundle="test-bundle")
+    app = create_app(settings=settings)
+
+    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+        async with asyncio.timeout(5.0):
+            async with app.router.lifespan_context(app):
+                await asyncio.wait_for(app.state.bundles_ready.wait(), timeout=3.0)
+
+                assert app.state.prepared_bundle is fake_prepared, (
+                    "app.state.prepared_bundle should be the PreparedBundle returned by prepare()"
+                )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_prepared_bundle_initialized_to_none_in_lifespan() -> None:
+    """app.state.prepared_bundle is initialized to None at lifespan startup.
+
+    Before prewarm has a chance to set it, it should be None (not missing).
+    """
+    load_gate: asyncio.Event = asyncio.Event()
+
+    async def blocking_load(source: str) -> SimpleNamespace:
+        await load_gate.wait()
+        return _make_fake_bundle()
+
+    mock_registry = MagicMock()
+    mock_registry.load = blocking_load
+    mock_registry.register = MagicMock()
+
+    settings = DaemonSettings(default_bundle="test-bundle")
+    app = create_app(settings=settings)
+
+    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+        async with asyncio.timeout(5.0):
+            async with app.router.lifespan_context(app):
+                # Before prewarm completes, prepared_bundle should be None
+                assert app.state.prepared_bundle is None
+
+                load_gate.set()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_prewarm_skipped_when_no_default_bundle() -> None:
     """When no default_bundle is configured bundles_ready is set immediately."""
     mock_registry = MagicMock()

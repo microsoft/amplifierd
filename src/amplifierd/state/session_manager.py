@@ -215,6 +215,7 @@ class SessionManager:
         bundle_name: str | None = None,
         bundle_uri: str | None = None,
         working_dir: str | None = None,
+        prepared_bundle: Any | None = None,
     ) -> SessionHandle:
         """Create a new session by loading and preparing a bundle.
 
@@ -222,31 +223,41 @@ class SessionManager:
             bundle_name: Registered bundle name to load.
             bundle_uri: Bundle URI to load directly.
             working_dir: Working directory override; falls back to daemon config or home.
+            prepared_bundle: Pre-warmed PreparedBundle to reuse. When provided, the
+                entire load → inject_providers → prepare pipeline is skipped, making
+                session creation nearly instant (create_session() is still called).
 
         Returns:
             The newly created and registered SessionHandle.
 
         Raises:
-            RuntimeError: If BundleRegistry is not available.
-            ValueError: If neither bundle_name nor bundle_uri is provided.
+            RuntimeError: If BundleRegistry is not available (slow path only).
+            ValueError: If none of bundle_name, bundle_uri, or prepared_bundle provided.
         """
-        if not self._bundle_registry:
+        if not self._bundle_registry and prepared_bundle is None:
             raise RuntimeError("BundleRegistry not available")
-        if not bundle_name and not bundle_uri:
-            raise ValueError("bundle_name or bundle_uri required")
+        if not bundle_name and not bundle_uri and prepared_bundle is None:
+            raise ValueError("bundle_name, bundle_uri, or prepared_bundle required")
 
         wd = self.resolve_working_dir(working_dir)
-        name_or_uri = bundle_uri or bundle_name
-        bundle = await self._bundle_registry.load(name_or_uri)
 
-        # Inject providers from ~/.amplifier/settings.yaml BEFORE prepare()
-        # so the activation step downloads and installs their dependencies.
-        from amplifierd.providers import inject_providers, load_provider_config
+        if prepared_bundle is not None:
+            # Fast path: reuse pre-warmed PreparedBundle — skip load + inject + prepare
+            prepared = prepared_bundle
+        else:
+            # Slow path: full load + inject_providers + prepare pipeline
+            name_or_uri = bundle_uri or bundle_name
+            bundle = await self._bundle_registry.load(name_or_uri)
 
-        providers = load_provider_config()
-        inject_providers(bundle, providers)
+            # Inject providers from ~/.amplifier/settings.yaml BEFORE prepare()
+            # so the activation step downloads and installs their dependencies.
+            from amplifierd.providers import inject_providers, load_provider_config
 
-        prepared = await bundle.prepare()
+            providers = load_provider_config()
+            inject_providers(bundle, providers)
+
+            prepared = await bundle.prepare()
+
         session = await prepared.create_session(session_cwd=Path(wd))
 
         # Register transcript/metadata persistence hooks

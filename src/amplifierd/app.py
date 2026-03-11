@@ -50,7 +50,8 @@ async def _prewarm(app: FastAPI) -> None:
         # itself async (uses asyncio.gather internally), we give it a dedicated
         # event loop inside that thread via asyncio.run(). The main uvicorn loop
         # stays free and can respond to /ready, /health, etc. throughout.
-        await asyncio.to_thread(lambda: asyncio.run(bundle.prepare()))
+        prepared = await asyncio.to_thread(lambda: asyncio.run(bundle.prepare()))
+        app.state.prepared_bundle = prepared
 
         app.state.bundles_ready.set()
         logger.info("Bundle pre-warmed and ready: %s", settings.default_bundle)
@@ -188,6 +189,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.bundles_ready = asyncio.Event()
     app.state.prewarm_task = None
     app.state.prewarm_error = None
+    app.state.prepared_bundle = None
 
     # Only launch background prewarm when there is real work to do (registry +
     # default bundle configured).  Otherwise mark bundles as ready immediately
