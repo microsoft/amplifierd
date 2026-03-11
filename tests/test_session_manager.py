@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -70,3 +72,101 @@ class TestSessionManager:
         assert len(sessions) == 3
         ids = {s["session_id"] for s in sessions}
         assert ids == {"session-0", "session-1", "session-2"}
+
+
+def _make_fake_session(session_id: str = "cwd-test-1") -> MagicMock:
+    """Minimal fake session for create/resume tests."""
+    session = MagicMock()
+    session.session_id = session_id
+    session.parent_id = None
+    session.cleanup = AsyncMock()
+    session.coordinator = MagicMock()
+    session.coordinator.hooks = MagicMock()
+    return session
+
+
+def _make_mock_registry(session: MagicMock | None = None) -> tuple[MagicMock, MagicMock]:
+    """Return (registry, mock_prepared) so tests can inspect create_session calls."""
+    if session is None:
+        session = _make_fake_session()
+    mock_prepared = MagicMock()
+    mock_prepared.create_session = AsyncMock(return_value=session)
+    mock_bundle = MagicMock()
+    mock_bundle.prepare = AsyncMock(return_value=mock_prepared)
+    mock_bundle.raw = {}
+    mock_registry = MagicMock()
+    mock_registry.load = AsyncMock(return_value=mock_bundle)
+    return mock_registry, mock_prepared
+
+
+class TestCreatePassesSessionCwd:
+    """SessionManager.create() must forward working_dir as session_cwd."""
+
+    async def test_create_passes_session_cwd(self, tmp_path: Path) -> None:
+        registry, mock_prepared = _make_mock_registry()
+        bus = EventBus()
+        settings = DaemonSettings()
+        manager = SessionManager(event_bus=bus, settings=settings)
+        manager._bundle_registry = registry  # noqa: SLF001
+
+        working_dir = str(tmp_path / "my-project")
+
+        with (
+            patch("amplifierd.providers.load_provider_config", return_value=[]),
+            patch("amplifierd.providers.inject_providers"),
+        ):
+            await manager.create(bundle_name="test", working_dir=working_dir)
+
+        mock_prepared.create_session.assert_awaited_once()
+        call_kwargs = mock_prepared.create_session.call_args.kwargs
+        assert "session_cwd" in call_kwargs, "session_cwd not passed to create_session"
+        assert call_kwargs["session_cwd"] == Path(working_dir)
+
+
+class TestResumePassesSessionCwd:
+    """SessionManager.resume() must forward working_dir as session_cwd."""
+
+    async def test_resume_passes_session_cwd(self, tmp_path: Path) -> None:
+        session_id = "resume-cwd-test"
+        fake_session = _make_fake_session(session_id)
+
+        # Set up a context mock that resume() will try to inject transcript into
+        mock_context = AsyncMock()
+        mock_context.get_messages = AsyncMock(return_value=[])
+        mock_context.set_messages = AsyncMock()
+        fake_session.coordinator.get = MagicMock(return_value=mock_context)
+
+        registry, mock_prepared = _make_mock_registry(fake_session)
+        bus = EventBus()
+        settings = DaemonSettings()
+
+        # Create the session dir structure that resume() expects
+        projects_dir = tmp_path / "projects"
+        project_dir = projects_dir / "my-project"
+        sessions_dir = project_dir / "sessions"
+        session_dir = sessions_dir / session_id
+        session_dir.mkdir(parents=True)
+
+        # Write transcript and metadata files
+        (session_dir / "transcript.jsonl").write_text("")
+        working_dir = "/Users/test/my-project"
+        (session_dir / "metadata.json").write_text(
+            json.dumps({"bundle": "test-bundle", "working_dir": working_dir})
+        )
+
+        manager = SessionManager(event_bus=bus, settings=settings, projects_dir=projects_dir)
+        manager._bundle_registry = registry  # noqa: SLF001
+
+        with (
+            patch("amplifierd.providers.load_provider_config", return_value=[]),
+            patch("amplifierd.providers.inject_providers"),
+            patch("amplifierd.persistence.register_persistence_hooks"),
+        ):
+            await manager.resume(session_id)
+
+        mock_prepared.create_session.assert_awaited_once()
+        call_kwargs = mock_prepared.create_session.call_args.kwargs
+        assert "session_cwd" in call_kwargs, "session_cwd not passed to create_session"
+        assert call_kwargs["session_cwd"] == Path(working_dir)
+        assert call_kwargs["session_id"] == session_id
+        assert call_kwargs["is_resumed"] is True
