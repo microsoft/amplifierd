@@ -200,3 +200,77 @@ uv tool install \
 ```
 
 If two plugins pull incompatible versions of a shared dependency, uv will report the conflict at install time rather than at runtime.
+
+## Security layer integration
+
+amplifierd includes a security layer for TLS, remote access, and authentication. Plugins interact with this layer in two ways: auth plugins provide the session verification logic, and all plugins benefit from the TLS/remote infrastructure without needing to handle it themselves.
+
+### TLS and remote access
+
+amplifierd supports TLS natively with three modes, configured via `--tls`:
+
+| Mode | Behavior |
+|------|----------|
+| `off` | No TLS. Plain HTTP on localhost. |
+| `auto` | Waterfall: try Tailscale serve, then Tailscale cert, then self-signed. |
+| `manual` | Use certificates you provide via `--ssl-certfile` and `--ssl-keyfile`. |
+
+When Tailscale is connected and `--tls auto` is set, amplifierd will attempt `tailscale serve` first, which proxies HTTPS externally without requiring amplifierd to terminate TLS itself. If that isn't available, it tries `tailscale cert` for a Tailscale-managed certificate, and falls back to generating a self-signed cert in `~/.amplifierd/certs/`.
+
+Plugins don't need to handle TLS -- it's resolved before uvicorn starts and applies to all routes including plugin routes.
+
+An API key can also be required for non-localhost requests via the `--api-key` flag or `AMPLIFIERD_API_KEY` environment variable. When set, remote clients must include `Authorization: Bearer <key>` on every request. Localhost requests bypass this check.
+
+### Authentication plugin contract
+
+amplifierd provides `SessionAuthMiddleware` -- middleware that gates non-public routes behind a session cookie. The middleware itself does not validate sessions. Instead, it defers to an `auth_verify_session` callable that an auth plugin must register on `app.state`.
+
+**What the middleware does:**
+
+1. Checks for an `amplifier_session` cookie on incoming requests.
+2. Calls `app.state.auth_verify_session(token)` with the cookie value.
+3. If the callable returns a non-None value, the request is authenticated.
+4. If the callable is not registered, the middleware **fails open** -- logs a warning and passes all requests through.
+
+**What an auth plugin must do:**
+
+1. Implement `/login`, `/logout`, and `/auth/me` routes (these paths are whitelisted by the middleware).
+2. Register a verify callable on `app.state` during `create_router`:
+
+```python
+from fastapi import APIRouter, Request, Response
+
+
+def create_router(state) -> APIRouter:
+    router = APIRouter(tags=["auth"])
+    sessions: dict[str, dict] = {}
+
+    # Register the session verifier so SessionAuthMiddleware can use it.
+    state.auth_verify_session = lambda token: sessions.get(token)
+
+    @router.post("/login")
+    async def login(request: Request, response: Response):
+        # Authenticate the user (PAM, LDAP, OAuth, etc.) and create a session.
+        # Set the session cookie:
+        #   response.set_cookie("amplifier_session", token, httponly=True, secure=True)
+        ...
+
+    @router.post("/logout")
+    async def logout(request: Request, response: Response):
+        # Delete session and clear cookie.
+        response.delete_cookie("amplifier_session")
+        ...
+
+    @router.get("/auth/me")
+    async def me(request: Request):
+        # Return current user info from the session cookie.
+        ...
+
+    return router
+```
+
+**Configuration dependency:** The middleware is only mounted when `auth_enabled` is `true` in settings. Users enable it via `AMPLIFIERD_AUTH_ENABLED=true` in the environment or in `~/.amplifierd/settings.json`. The `--no-auth` CLI flag explicitly disables it. Auth is off by default to preserve the existing localhost-only experience.
+
+**Design note:** Authentication is most useful when combined with TLS and remote access. A typical remote setup would use `--tls auto` with an auth plugin and `auth_enabled: true` in settings.
+
+**Reference implementation:** [amplifier-distro](https://github.com/microsoft/amplifier-distro) includes a PAM-based auth plugin at `amplifierd-plugins/amplifierd-plugin-auth/` that implements Linux PAM login, signed session cookies via `itsdangerous`, and the `/login`, `/logout`, `/auth/me` routes.
