@@ -51,6 +51,20 @@ async def _prewarm(app: FastAPI) -> None:
         # event loop inside that thread via asyncio.run(). The main uvicorn loop
         # stays free and can respond to /ready, /health, etc. throughout.
         prepared = await asyncio.to_thread(lambda: asyncio.run(bundle.prepare()))
+
+        # Warm Python's sys.modules cache by creating (and discarding) a
+        # throwaway session.  create_session() -> session.initialize() imports
+        # every module package via importlib.  The first call is expensive
+        # (~12s); subsequent calls hit sys.modules and are fast (~1-2s).
+        # We pay the cost here in the background so the user's first real
+        # session is near-instant.
+        try:
+            _throwaway = await asyncio.to_thread(lambda: asyncio.run(prepared.create_session()))
+            del _throwaway
+            logger.info("Module import cache warmed via throwaway session")
+        except Exception:
+            logger.warning("Throwaway session failed (non-fatal)", exc_info=True)
+
         session_manager = getattr(app.state, "session_manager", None)
         if session_manager:
             session_manager.set_prepared_bundle(settings.default_bundle, prepared)
@@ -102,7 +116,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
         import os as _os
         from pathlib import Path as _Path
 
-        _keys_path = _Path(_os.environ.get("AMPLIFIER_HOME", _Path.home() / ".amplifier")) / "keys.env"
+        _home = _Path(_os.environ.get("AMPLIFIER_HOME", _Path.home() / ".amplifier"))
+        _keys_path = _home / "keys.env"
         if _keys_path.is_file():
             _loaded = []
             for _line in _keys_path.read_text().splitlines():
