@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -19,6 +20,36 @@ from amplifierd.state.event_bus import EventBus
 from amplifierd.state.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
+
+
+async def _prewarm(app: FastAPI) -> None:
+    """Background task: load default bundle, inject providers, prepare."""
+    try:
+        registry = app.state.bundle_registry
+        if not registry:
+            return
+        settings = app.state.settings
+        if not settings.default_bundle:
+            app.state.bundles_ready.set()
+            return
+
+        bundle = await registry.load(settings.default_bundle)
+
+        from amplifierd.providers import inject_providers, load_provider_config
+
+        providers = load_provider_config()
+        inject_providers(bundle, providers)
+
+        await bundle.prepare()
+
+        app.state.bundles_ready.set()
+        logger.info("Bundle pre-warmed and ready: %s", settings.default_bundle)
+    except asyncio.CancelledError:
+        logger.info("Bundle prewarm cancelled")
+        raise
+    except Exception as exc:
+        app.state.prewarm_error = str(exc)
+        logger.warning("Bundle prewarm failed: %s", exc, exc_info=True)
 
 
 @asynccontextmanager
@@ -112,18 +143,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 list(settings.bundles.keys()),
             )
 
-        # Pre-load the default bundle so first session creation is fast
-        if settings.default_bundle:
-            try:
-                await app.state.bundle_registry.load(settings.default_bundle)
-                logger.info("Pre-loaded default bundle: %s", settings.default_bundle)
-            except Exception:
-                logger.warning(
-                    "Failed to pre-load default bundle '%s'",
-                    settings.default_bundle,
-                    exc_info=True,
-                )
-
     except Exception:
         logger.warning("Failed to create BundleRegistry; starting without it", exc_info=True)
         app.state.bundle_registry = None
@@ -155,9 +174,27 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         update_session_meta(app.state.daemon_session_path, {"plugins": plugin_names})
 
+    # Background state tracking for prewarm
+    app.state.bundles_ready = asyncio.Event()
+    app.state.prewarm_task = None
+    app.state.prewarm_error = None
+
+    # Start bundle loading in background — server yields immediately
+    prewarm_task = asyncio.create_task(_prewarm(app))
+    app.state.prewarm_task = prewarm_task
+    app.state.background_tasks.add(prewarm_task)
+    prewarm_task.add_done_callback(app.state.background_tasks.discard)
+
     yield
 
     # --- Shutdown ---
+    if app.state.prewarm_task and not app.state.prewarm_task.done():
+        app.state.prewarm_task.cancel()
+        try:
+            await app.state.prewarm_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
     if app.state.daemon_session_path:
         from datetime import UTC, datetime
 
