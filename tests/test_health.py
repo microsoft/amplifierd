@@ -223,3 +223,39 @@ class TestPrewarmGuard503:
         session_client.app.state.bundles_ready = event
         resp = session_client.post("/sessions", json={"bundle_name": "test-bundle"})
         assert resp.status_code == 201
+
+
+@pytest.mark.unit
+class TestPrewarmFunction:
+    """Tests for the prewarm() background task (public API)."""
+
+    async def test_prewarm_failure_releases_bundles_ready(self) -> None:
+        """prewarm() sets bundles_ready even when bundle loading fails.
+
+        Without this, the 503 guard permanently blocks ALL session creation
+        after a prewarm failure. Users should still be able to reach the
+        wizard or retry via POST /ready/retry.
+        """
+        from fastapi import FastAPI
+
+        from amplifierd.app import prewarm  # public name after rename
+
+        app = FastAPI()
+        app.state.bundles_ready = asyncio.Event()
+        app.state.prewarm_error = None
+
+        mock_registry = MagicMock()
+        mock_registry.load = AsyncMock(side_effect=RuntimeError("Network failure"))
+        app.state.bundle_registry = mock_registry
+
+        app.state.settings = SimpleNamespace(default_bundle="my-bundle")
+
+        await prewarm(app)
+
+        # The 503 guard MUST release even after failure
+        assert app.state.bundles_ready.is_set(), (
+            "bundles_ready must be set after prewarm failure "
+            "to prevent the 503 guard permanently blocking session creation"
+        )
+        # Error must be captured so GET /ready can surface it
+        assert app.state.prewarm_error == "Network failure"

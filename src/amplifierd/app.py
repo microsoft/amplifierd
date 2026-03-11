@@ -22,8 +22,11 @@ from amplifierd.state.session_manager import SessionManager
 logger = logging.getLogger(__name__)
 
 
-async def _prewarm(app: FastAPI) -> None:
-    """Background task: load default bundle, inject providers, prepare."""
+async def prewarm(app: FastAPI) -> None:
+    """Background task: load default bundle, inject providers, prepare.
+
+    Public API — imported by amplifierd.routes.health and distro_plugin.reload.
+    """
     try:
         registry = app.state.bundle_registry
         if not registry:
@@ -33,6 +36,8 @@ async def _prewarm(app: FastAPI) -> None:
         if not settings.default_bundle:
             app.state.bundles_ready.set()
             return
+
+        logger.info("Starting bundle prewarm for '%s'...", settings.default_bundle)
 
         bundle = await registry.load(settings.default_bundle)
 
@@ -50,17 +55,37 @@ async def _prewarm(app: FastAPI) -> None:
         # itself async (uses asyncio.gather internally), we give it a dedicated
         # event loop inside that thread via asyncio.run(). The main uvicorn loop
         # stays free and can respond to /ready, /health, etc. throughout.
-        prepared = await asyncio.to_thread(lambda: asyncio.run(bundle.prepare()))
-
-        # Warm Python's sys.modules cache by creating (and discarding) a
-        # throwaway session.  create_session() -> session.initialize() imports
-        # every module package via importlib.  The first call is expensive
-        # (~12s); subsequent calls hit sys.modules and are fast (~1-2s).
-        # We pay the cost here in the background so the user's first real
-        # session is near-instant.
+        #
+        # NOTE: asyncio.wait_for() + asyncio.to_thread() — the timeout cancels
+        # the awaiter but the worker thread keeps running. The thread running
+        # subprocess.run() (uv pip install) will complete on its own. A brief
+        # period of overlapping work is possible on retry, but uv uses file locks
+        # so this is safe. The user gets a clear timeout error immediately.
         try:
-            _throwaway = await asyncio.to_thread(lambda: asyncio.run(prepared.create_session()))
-            del _throwaway
+            prepared = await asyncio.wait_for(
+                asyncio.to_thread(lambda: asyncio.run(bundle.prepare())),
+                timeout=300,
+            )
+        except TimeoutError:
+            raise TimeoutError(
+                "Bundle preparation timed out after 300 seconds. "
+                "Check network connectivity and retry."
+            )
+
+        # Warm Python's sys.modules cache by creating (and immediately cleaning
+        # up) a throwaway session.  create_session() -> session.initialize()
+        # imports every module package via importlib.  The first call is
+        # expensive (~12s); subsequent calls hit sys.modules and are fast
+        # (~1-2s).  We pay the cost here in the background so the user's first
+        # real session is near-instant.
+        async def _warmup_imports() -> None:
+            """Create and immediately clean up a session to warm sys.modules."""
+            session = await prepared.create_session()
+            if hasattr(session, "cleanup"):
+                await session.cleanup()
+
+        try:
+            await asyncio.to_thread(lambda: asyncio.run(_warmup_imports()))
             logger.info("Module import cache warmed via throwaway session")
         except Exception:
             logger.warning("Throwaway session failed (non-fatal)", exc_info=True)
@@ -75,7 +100,12 @@ async def _prewarm(app: FastAPI) -> None:
         logger.info("Bundle prewarm cancelled")
         raise
     except Exception as exc:
+        # Set bundles_ready even on failure so the 503 guard releases.
+        # Users can still attempt session creation (which will fail with 502
+        # if the bundle is actually broken), access the wizard to fix config,
+        # or retry via POST /ready/retry.
         app.state.prewarm_error = str(exc)
+        app.state.bundles_ready.set()
         logger.warning("Bundle prewarm failed: %s", exc, exc_info=True)
 
 
@@ -211,7 +241,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # default bundle configured).  Otherwise mark bundles as ready immediately
     # so that the 503 route guard does not block session creation.
     if app.state.bundle_registry and settings.default_bundle:
-        prewarm_task = asyncio.create_task(_prewarm(app))
+        prewarm_task = asyncio.create_task(prewarm(app))
         app.state.prewarm_task = prewarm_task
         app.state.background_tasks.add(prewarm_task)
         prewarm_task.add_done_callback(app.state.background_tasks.discard)

@@ -121,15 +121,29 @@ async def ready_retry(request: Request) -> dict:
         except (asyncio.CancelledError, Exception):
             pass
 
+    # Clear stale prepared bundle cache so the retry loads fresh
+    session_manager = getattr(app.state, "session_manager", None)
+    if session_manager and hasattr(session_manager, "clear_prepared_bundle"):
+        session_manager.clear_prepared_bundle()
+
+    # Invalidate registry cache so retry loads fresh from disk
+    registry = getattr(app.state, "bundle_registry", None)
+    settings = getattr(app.state, "settings", None)
+    if registry and settings and getattr(settings, "default_bundle", None):
+        try:
+            await registry.update(settings.default_bundle)
+        except Exception:
+            pass  # Best effort — prewarm will re-attempt load anyway
+
     # Clear ready event
     bundles_ready = getattr(app.state, "bundles_ready", None)
     if bundles_ready:
         bundles_ready.clear()
 
     # Start new prewarm task
-    from amplifierd.app import _prewarm
+    from amplifierd.app import prewarm
 
-    new_task = asyncio.create_task(_prewarm(app))
+    new_task = asyncio.create_task(prewarm(app))
     app.state.prewarm_task = new_task
     app.state.background_tasks.add(new_task)
     new_task.add_done_callback(app.state.background_tasks.discard)
