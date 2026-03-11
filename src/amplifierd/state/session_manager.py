@@ -247,7 +247,7 @@ class SessionManager:
         inject_providers(bundle, providers)
 
         prepared = await bundle.prepare()
-        session = await prepared.create_session()
+        session = await prepared.create_session(session_cwd=Path(wd))
 
         # Register transcript/metadata persistence hooks
         if self._projects_dir:
@@ -380,6 +380,7 @@ class SessionManager:
         session = await prepared.create_session(
             session_id=session_id,
             is_resumed=True,
+            session_cwd=Path(working_dir),
         )
 
         # 5. Inject transcript into context (preserving system prompt)
