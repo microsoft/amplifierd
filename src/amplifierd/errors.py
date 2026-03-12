@@ -201,22 +201,26 @@ def build_problem_detail(exc: LLMError | BundleError, instance: str) -> ProblemD
 def register_error_handlers(app: FastAPI) -> None:
     """Register FastAPI exception handlers for LLMError and BundleError."""
 
-    @app.exception_handler(LLMError)
-    async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
-        pd = build_problem_detail(exc, instance=str(request.url.path))
-        headers: dict[str, str] = {}
-        if isinstance(exc, RateLimitError) and exc.retry_after is not None:
-            headers["Retry-After"] = str(int(exc.retry_after))
-        return JSONResponse(
-            status_code=pd.status,
-            content=pd.model_dump(exclude_none=True),
-            headers=headers or None,
-        )
+    if _HAS_AMPLIFIER_CORE:
 
-    @app.exception_handler(BundleError)
-    async def bundle_error_handler(request: Request, exc: BundleError) -> JSONResponse:
-        pd = build_problem_detail(exc, instance=str(request.url.path))
-        return JSONResponse(
-            status_code=pd.status,
-            content=pd.model_dump(exclude_none=True),
-        )
+        @app.exception_handler(LLMError)
+        async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
+            pd = build_problem_detail(exc, instance=str(request.url.path))
+            headers: dict[str, str] = {}
+            if isinstance(exc, RateLimitError) and exc.retry_after is not None:
+                headers["Retry-After"] = str(int(exc.retry_after))
+            return JSONResponse(
+                status_code=pd.status,
+                content=pd.model_dump(exclude_none=True),
+                headers=headers or None,
+            )
+
+    if _HAS_AMPLIFIER_FOUNDATION:
+
+        @app.exception_handler(BundleError)
+        async def bundle_error_handler(request: Request, exc: BundleError) -> JSONResponse:
+            pd = build_problem_detail(exc, instance=str(request.url.path))
+            return JSONResponse(
+                status_code=pd.status,
+                content=pd.model_dump(exclude_none=True),
+            )
