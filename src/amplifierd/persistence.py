@@ -24,13 +24,13 @@ _METADATA_FILENAME = "metadata.json"
 
 # Resolve sanitize_message once at import time.
 try:
-    from amplifier_foundation import sanitize_message as _foundation_sanitize
+    from amplifier_lib import sanitize_message as _foundation_sanitize
 except ImportError:
     _foundation_sanitize = None  # type: ignore[assignment]
 
 # Resolve write_with_backup once at import time.
 try:
-    from amplifier_foundation import write_with_backup as _write_with_backup
+    from amplifier_lib import write_with_backup as _write_with_backup
 except ImportError:
     _write_with_backup = None  # type: ignore[assignment]
 
@@ -66,9 +66,7 @@ def write_transcript(session_dir: Path, messages: list[dict[str, Any]]) -> None:
     for msg in messages:
         try:
             msg_dict = (
-                msg
-                if isinstance(msg, dict)
-                else getattr(msg, "model_dump", lambda _m=msg: _m)()
+                msg if isinstance(msg, dict) else getattr(msg, "model_dump", lambda _m=msg: _m)()
             )
             if msg_dict.get("role") in _EXCLUDED_ROLES:
                 continue
@@ -166,9 +164,7 @@ class TranscriptSaveHook:
             if count <= self._last_count:
                 return HookResult(action="continue")
 
-            await asyncio.to_thread(
-                write_transcript, self._session_dir, list(messages)
-            )
+            await asyncio.to_thread(write_transcript, self._session_dir, list(messages))
             self._last_count = count
 
         except Exception:  # noqa: BLE001
@@ -203,9 +199,7 @@ class MetadataSaveHook:
                 return HookResult(action="continue")
 
             messages = await context.get_messages()
-            turn_count = sum(
-                1 for m in messages if isinstance(m, dict) and m.get("role") == "user"
-            )
+            turn_count = sum(1 for m in messages if isinstance(m, dict) and m.get("role") == "user")
 
             updates: dict[str, Any] = {
                 "turn_count": turn_count,
