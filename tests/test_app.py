@@ -57,7 +57,7 @@ async def test_server_accepts_connections_before_bundle_load() -> None:
     settings = DaemonSettings(default_bundle="test-bundle")
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         # The whole interaction must complete within 5 s.
         # With the OLD lifespan (blocking load before yield) the lifespan
         # context manager would block indefinitely and we'd never enter the
@@ -93,7 +93,7 @@ async def test_bundles_ready_event_set_after_successful_prewarm() -> None:
     settings = DaemonSettings(default_bundle="test-bundle")
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
                 await asyncio.wait_for(app.state.bundles_ready.wait(), timeout=3.0)
@@ -120,7 +120,7 @@ async def test_prewarm_error_stored_in_app_state() -> None:
     settings = DaemonSettings(default_bundle="test-bundle")
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
                 # Give the background task a moment to fail.
@@ -162,7 +162,7 @@ async def test_prewarm_stores_prepared_bundle_on_session_manager() -> None:
     settings = DaemonSettings(default_bundle="test-bundle")
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
                 await asyncio.wait_for(app.state.bundles_ready.wait(), timeout=3.0)
@@ -194,7 +194,7 @@ async def test_prepared_bundle_cache_empty_before_prewarm() -> None:
     settings = DaemonSettings(default_bundle="test-bundle")
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
                 # Before prewarm completes, cache should be empty
@@ -213,7 +213,7 @@ async def test_prewarm_skipped_when_no_default_bundle() -> None:
     settings = DaemonSettings(default_bundle=None)  # explicitly no default bundle
     app = create_app(settings=settings)
 
-    with patch("amplifier_foundation.BundleRegistry", return_value=mock_registry):
+    with patch("amplifier_lib.BundleRegistry", return_value=mock_registry):
         async with asyncio.timeout(5.0):
             async with app.router.lifespan_context(app):
                 await asyncio.wait_for(app.state.bundles_ready.wait(), timeout=2.0)

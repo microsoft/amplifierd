@@ -18,14 +18,17 @@ dependencies = [
     "click>=8.1.0",
     "pyyaml>=6.0",
     "amplifier-core>=1.1.1",
-    "amplifier-foundation @ git+https://github.com/microsoft/amplifier-foundation",
+    "amplifier-lib",
 ]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+amplifier-lib = { git = "https://github.com/microsoft/amplifier-lib", branch = "main" }
 
 [project.scripts]
 amplifierd = "amplifierd.cli:main"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/amplifierd"]

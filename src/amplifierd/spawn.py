@@ -51,7 +51,7 @@ def register_spawn_capability(
                     SessionHandle of *session*.  Used to call
                     ``register_child()`` for EventBus tree propagation.
     """
-    from amplifier_foundation import Bundle  # type: ignore[import]
+    from amplifier_lib import Bundle  # type: ignore[import]
 
     coordinator = session.coordinator
 
@@ -181,7 +181,7 @@ async def _spawn_with_event_forwarding(
     events in real time.
 
     Reference implementations:
-        - ``amplifier_foundation/bundle.py`` — ``PreparedBundle.spawn()``
+        - ``amplifier_lib/bundle.py`` — ``PreparedBundle.spawn()``
         - ``amplifier-app-cli/session_spawner.py`` — ``spawn_sub_session()``
     """
     from amplifier_core import AmplifierSession, HookResult  # type: ignore[import]
@@ -199,7 +199,7 @@ async def _spawn_with_event_forwarding(
 
     # 4. Apply provider preferences (fallback chain)
     if provider_preferences:
-        from amplifier_foundation import (  # type: ignore[import]
+        from amplifier_lib import (  # type: ignore[import]
             apply_provider_preferences_with_resolution,
         )
 

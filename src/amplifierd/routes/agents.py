@@ -61,7 +61,7 @@ async def _noop_cleanup() -> None:
 def _create_placeholder_child(
     child_session_id: str, parent_session_id: str, agent_name: str
 ) -> Any:
-    """Create a minimal placeholder session for when amplifier_foundation is unavailable."""
+    """Create a minimal placeholder session for when amplifier_lib is unavailable."""
     return SimpleNamespace(
         session_id=child_session_id,
         parent_id=parent_session_id,
@@ -78,7 +78,7 @@ async def _create_child_handle(
 ) -> tuple[str, SessionHandle]:
     """Create and register a child session handle.
 
-    Attempts to use amplifier_foundation to create a real child session.
+    Attempts to use amplifier_lib to create a real child session.
     Falls back to a placeholder if unavailable.
 
     Returns ``(child_session_id, child_handle)``.
@@ -87,7 +87,7 @@ async def _create_child_handle(
 
     # Try the real foundation path first
     try:
-        from amplifier_foundation import create_child_session  # type: ignore[import-not-found]
+        from amplifier_lib import create_child_session  # type: ignore[import-not-found]
 
         child_session = await create_child_session(parent_handle.session, agent_name)
         child_handle = manager.register(
