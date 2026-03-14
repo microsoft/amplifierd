@@ -214,6 +214,11 @@ class SessionHandle:
             self._status = SessionStatus.FAILED
             raise
         finally:
+            # Catch-all: if status is still EXECUTING here, something bypassed
+            # both the success and except paths (e.g., asyncio.CancelledError
+            # which is BaseException in Python 3.9+). Reset to FAILED.
+            if self._status == SessionStatus.EXECUTING:
+                self._status = SessionStatus.FAILED
             self._last_activity = datetime.now(UTC)
 
     def cancel(self, immediate: bool = False) -> None:

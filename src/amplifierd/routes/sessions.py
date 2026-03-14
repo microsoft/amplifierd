@@ -204,11 +204,11 @@ async def patch_session(request: Request, session_id: str, body: PatchSessionReq
     if handle is not None:
         if body.working_dir is not None:
             try:
-                from amplifier_foundation import set_working_dir
+                from amplifier_lib import set_working_dir
 
                 set_working_dir(handle.session, body.working_dir)
             except (ImportError, AttributeError):
-                logger.warning("amplifier_foundation.set_working_dir not available or failed")
+                logger.warning("amplifier_lib.set_working_dir not available or failed")
             handle._working_dir = body.working_dir  # noqa: SLF001
 
     # Persist name and/or working_dir to metadata.json on disk
@@ -301,12 +301,26 @@ async def execute_stream(
 ) -> ExecuteStreamAccepted:
     """Fire-and-forget streaming execution (returns immediately with correlation_id)."""
     handle = _get_handle_or_404(request, session_id)
+    if handle.status == SessionStatus.EXECUTING:
+        detail = ProblemDetail(
+            type=ErrorTypeURI.EXECUTION_IN_PROGRESS,
+            title="Execution In Progress",
+            status=409,
+            detail=f"Session '{session_id}' is already executing",
+            instance=str(request.url.path),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail.model_dump(exclude_none=True),
+        )
     turn_count = handle.turn_count + 1
     correlation_id = f"prompt_{session_id}_{turn_count}"
 
     async def _run() -> None:
         try:
             await handle.execute(body.prompt)
+        except asyncio.CancelledError:
+            logger.warning("Execution cancelled for session %s", session_id)
         except Exception:
             logger.exception("Streaming execution failed for session %s", session_id)
         finally:
@@ -357,7 +371,7 @@ async def fork_session_endpoint(
     forked_from_turn = body.turn
 
     try:
-        from amplifier_foundation.session import fork_session_in_memory
+        from amplifier_lib.session import fork_session_in_memory
 
         messages: list[Any] = []
         context = getattr(handle.session, "context", None)
@@ -394,7 +408,7 @@ async def fork_preview(request: Request, session_id: str, turn: int) -> dict[str
     handle = _get_handle_or_404(request, session_id)
 
     try:
-        from amplifier_foundation.session import fork_session_in_memory, get_turn_boundaries
+        from amplifier_lib.session import fork_session_in_memory, get_turn_boundaries
 
         messages: list[Any] = []
         context = getattr(handle.session, "context", None)
@@ -431,7 +445,7 @@ async def list_turns(request: Request, session_id: str) -> dict[str, Any]:
 
     turns: list[dict[str, Any]] = []
     try:
-        from amplifier_foundation.session import get_turn_boundaries
+        from amplifier_lib.session import get_turn_boundaries
 
         messages: list[Any] = []
         context = getattr(handle.session, "context", None)

@@ -176,8 +176,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # packages like `anthropic` or `openai` are missing.  Invalidating is cheap
     # — uv pip install -e is a fast no-op when packages are already present.
     try:
-        from amplifier_foundation.modules.install_state import InstallStateManager
-        from amplifier_foundation.paths import get_amplifier_home
+        from amplifier_lib.modules.install_state import InstallStateManager
+        from amplifier_lib.paths import get_amplifier_home
 
         state = InstallStateManager(get_amplifier_home() / "cache")
         state.invalidate()
@@ -188,7 +188,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # BundleRegistry — resilient: catches all exceptions, starts without registry
     try:
-        from amplifier_foundation import BundleRegistry
+        from amplifier_lib import BundleRegistry
 
         app.state.bundle_registry = BundleRegistry()
 
