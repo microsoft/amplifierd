@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
 from amplifierd.state.transport_event import TransportEvent
+
+logger = logging.getLogger(__name__)
+
+_KEEPALIVE_INTERVAL: float = 15.0
 
 
 class _Subscriber:
@@ -123,6 +128,12 @@ class EventBus:
                     except asyncio.QueueEmpty:
                         pass
                     sub.queue.put_nowait(event)
+                    logger.warning(
+                        "EventBus queue full for subscriber session=%s; "
+                        "dropped oldest event (current_event=%s)",
+                        sub.session_id,
+                        event_name,
+                    )
 
     # ------------------------------------------------------------------
     # Subscribe (async generator)
@@ -132,15 +143,24 @@ class EventBus:
         self,
         session_id: str | None = None,
         filter_patterns: list[str] | None = None,
-    ) -> AsyncIterator[TransportEvent]:
+    ) -> AsyncIterator[TransportEvent | None]:
         """Async generator yielding TransportEvents for this subscriber."""
         queue: asyncio.Queue[TransportEvent] = asyncio.Queue(maxsize=self._MAX_QUEUE_SIZE)
         sub = _Subscriber(session_id=session_id, filter_patterns=filter_patterns, queue=queue)
         self._subscribers.append(sub)
+        logger.info(
+            "SSE subscriber connected: session=%s (total=%d)",
+            session_id,
+            len(self._subscribers),
+        )
         sequence = 0
         try:
             while True:
-                raw = await queue.get()
+                try:
+                    raw = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_INTERVAL)
+                except TimeoutError:
+                    yield None  # Keepalive sentinel for SSE generator
+                    continue
                 sequence += 1
                 event = TransportEvent(
                     event_name=raw.event_name,
@@ -153,3 +173,8 @@ class EventBus:
                 yield event
         finally:
             self._subscribers.remove(sub)
+            logger.info(
+                "SSE subscriber disconnected: session=%s (total=%d)",
+                session_id,
+                len(self._subscribers),
+            )
