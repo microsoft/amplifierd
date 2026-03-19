@@ -326,7 +326,7 @@ async def cancel_session(request: Request, session_id: str, body: CancelRequest)
     """Cancel the current execution."""
     handle = _get_handle_or_404(request, session_id)
     immediate = body.immediate or False
-    handle.cancel(immediate=immediate)
+    await handle.cancel(immediate=immediate)
     state = "immediate" if immediate else "graceful"
     return CancelResponse(state=state)
 

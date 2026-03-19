@@ -127,6 +127,12 @@ async def spawn_agent(request: Request, session_id: str, body: SpawnRequest) -> 
     # Register child in parent's tracking (also propagates to EventBus)
     handle.register_child(child_session_id, body.agent)
 
+    # Link cancellation tokens so cancelling the parent propagates to the child.
+    parent_cancel = getattr(handle.session.coordinator, "cancellation", None)
+    child_cancel = getattr(child_handle.session.coordinator, "cancellation", None)
+    if parent_cancel and child_cancel:
+        parent_cancel.register_child(child_cancel)
+
     output: str | None = None
     try:
         result = await child_handle.execute(body.instruction)
@@ -135,6 +141,9 @@ async def spawn_agent(request: Request, session_id: str, body: SpawnRequest) -> 
         logger.exception(
             "Spawn execution failed for session %s child %s", session_id, child_session_id
         )
+    finally:
+        if parent_cancel and child_cancel:
+            parent_cancel.unregister_child(child_cancel)
 
     return SpawnResponse(
         session_id=child_session_id,
@@ -159,6 +168,12 @@ async def spawn_agent_stream(
     child_session_id, child_handle = await _create_child_handle(request, handle, body.agent)
     handle.register_child(child_session_id, body.agent)
 
+    # Link cancellation tokens so cancelling the parent propagates to the child.
+    parent_cancel = getattr(handle.session.coordinator, "cancellation", None)
+    child_cancel = getattr(child_handle.session.coordinator, "cancellation", None)
+    if parent_cancel and child_cancel:
+        parent_cancel.register_child(child_cancel)
+
     # Fire instruction in background
     async def _run() -> None:
         try:
@@ -166,6 +181,8 @@ async def spawn_agent_stream(
         except Exception:
             logger.exception("Background spawn execution failed for child %s", child_session_id)
         finally:
+            if parent_cancel and child_cancel:
+                parent_cancel.unregister_child(child_cancel)
             background_tasks.discard(task)
 
     background_tasks: set[asyncio.Task[None]] = request.app.state.background_tasks

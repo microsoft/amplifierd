@@ -43,7 +43,11 @@ def _make_handle(
     working_dir: str | None = None,
 ) -> SessionHandle:
     """Create a minimal SessionHandle with a fake session for testing."""
-    fake_coordinator = SimpleNamespace(request_cancel=lambda immediate: None)
+
+    async def _noop_cancel(immediate: bool) -> None:
+        pass
+
+    fake_coordinator = SimpleNamespace(request_cancel=_noop_cancel)
     fake_session = SimpleNamespace(
         session_id=session_id,
         parent_id=None,
@@ -285,9 +289,7 @@ class TestSessionPatchNameEndpoint:
         assert "status" in data
         assert "bundle" in data
 
-    def test_patch_name_persists_to_metadata_json(
-        self, client: TestClient, tmp_path: Path
-    ) -> None:
+    def test_patch_name_persists_to_metadata_json(self, client: TestClient, tmp_path: Path) -> None:
         """PATCH with name writes name to metadata.json in session dir."""
         manager = client.app.state.session_manager
         projects_dir = manager.projects_dir
@@ -306,7 +308,6 @@ class TestSessionPatchNameEndpoint:
 
     def test_patch_name_emits_session_renamed_event(self, client: TestClient) -> None:
         """PATCH with name publishes session_renamed event on the EventBus."""
-        import asyncio
 
         _register_handle(client, "sess-evt")
         event_bus = client.app.state.event_bus
@@ -340,14 +341,11 @@ class TestSessionPatchNameEndpoint:
         assert evt["data"]["name"] == "Emitted"
         assert evt["data"]["session_id"] == "sess-evt"
 
-    def test_patch_name_no_sessions_dir_still_emits_event(
-        self, client: TestClient
-    ) -> None:
+    def test_patch_name_no_sessions_dir_still_emits_event(self, client: TestClient) -> None:
         """PATCH with name emits event even when projects_dir is not configured."""
-        import asyncio
-        from amplifierd.state.session_manager import SessionManager
-        from amplifierd.state.event_bus import EventBus
         from amplifierd.config import DaemonSettings
+        from amplifierd.state.event_bus import EventBus
+        from amplifierd.state.session_manager import SessionManager
 
         # Replace manager with one that has projects_dir=None
         event_bus = EventBus()

@@ -339,6 +339,12 @@ async def _spawn_with_event_forwarding(
     #     session automatically receive child events via get_descendants().
     parent_handle.register_child(child_session.session_id, agent_name)
 
+    # 13b. Link cancellation tokens so cancelling the parent propagates to the child.
+    parent_cancel = getattr(session.coordinator, "cancellation", None)
+    child_cancel = getattr(child_session.coordinator, "cancellation", None)
+    if parent_cancel and child_cancel:
+        parent_cancel.register_child(child_cancel)
+
     # 14. Register spawn capability on child (enables recursive delegation)
     register_spawn_capability(
         child_session,
@@ -374,7 +380,10 @@ async def _spawn_with_event_forwarding(
     finally:
         if unregister_capture:
             unregister_capture()
-        # 17. Cleanup: remove child from SessionManager, teardown session
+        # 17. Unlink cancellation token before teardown
+        if parent_cancel and child_cancel:
+            parent_cancel.unregister_child(child_cancel)
+        # 18. Cleanup: remove child from SessionManager, teardown session
         await session_manager.destroy(child_session.session_id)
 
     return {
