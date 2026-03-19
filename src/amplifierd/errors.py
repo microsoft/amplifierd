@@ -45,7 +45,7 @@ except ImportError:
     _HAS_AMPLIFIER_CORE = False
 
 try:
-    from amplifier_foundation.exceptions import (
+    from amplifier_lib.exceptions import (
         BundleDependencyError,
         BundleError,
         BundleLoadError,

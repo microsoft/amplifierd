@@ -24,13 +24,13 @@ _METADATA_FILENAME = "metadata.json"
 
 # Resolve sanitize_message once at import time.
 try:
-    from amplifier_foundation import sanitize_message as _foundation_sanitize
+    from amplifier_lib import sanitize_message as _foundation_sanitize
 except ImportError:
     _foundation_sanitize = None  # type: ignore[assignment]
 
 # Resolve write_with_backup once at import time.
 try:
-    from amplifier_foundation import write_with_backup as _write_with_backup
+    from amplifier_lib import write_with_backup as _write_with_backup
 except ImportError:
     _write_with_backup = None  # type: ignore[assignment]
 

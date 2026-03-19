@@ -216,9 +216,9 @@ class SessionHandle:
         finally:
             self._last_activity = datetime.now(UTC)
 
-    def cancel(self, immediate: bool = False) -> None:
+    async def cancel(self, immediate: bool = False) -> None:
         """Request cancellation of the current execution."""
-        self._session.coordinator.request_cancel(immediate)
+        await self._session.coordinator.request_cancel(immediate)
 
     async def cleanup(self) -> None:
         """Clean up the underlying session."""

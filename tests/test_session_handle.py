@@ -23,7 +23,7 @@ def _make_mock_session(session_id: str = "sess-1", parent_id: str | None = None)
     session.execute = AsyncMock(return_value="result-ok")
     session.cleanup = AsyncMock()
     session.coordinator = MagicMock()
-    session.coordinator.request_cancel = MagicMock()
+    session.coordinator.request_cancel = AsyncMock()
     return session
 
 
@@ -147,7 +147,7 @@ class TestSessionHandle:
         # Verify correlation_id format after 3 executions
         assert handle.correlation_id == "prompt_sess-turns_3"
 
-    def test_cancel_delegates_to_coordinator(self):
+    async def test_cancel_delegates_to_coordinator(self):
         """cancel() forwards the immediate flag to session.coordinator.request_cancel()."""
         bus = EventBus()
         mock_session = _make_mock_session(session_id="sess-cancel")
@@ -160,11 +160,11 @@ class TestSessionHandle:
             working_dir=None,
         )
 
-        handle.cancel(immediate=False)
+        await handle.cancel(immediate=False)
         mock_session.coordinator.request_cancel.assert_called_once_with(False)
 
         mock_session.coordinator.request_cancel.reset_mock()
-        handle.cancel(immediate=True)
+        await handle.cancel(immediate=True)
         mock_session.coordinator.request_cancel.assert_called_once_with(True)
 
     async def test_cleanup_sets_completed_status(self):
