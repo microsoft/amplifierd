@@ -87,7 +87,7 @@ async def _create_child_handle(
 
     # Try the real foundation path first
     try:
-        from amplifier_lib import create_child_session  # type: ignore[import-not-found]
+        from amplifier_foundation import create_child_session  # type: ignore[import-not-found]
 
         child_session = await create_child_session(parent_handle.session, agent_name)
         child_handle = manager.register(
