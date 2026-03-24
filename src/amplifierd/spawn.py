@@ -340,7 +340,7 @@ async def _spawn_with_event_forwarding(
     parent_handle.register_child(child_session.session_id, agent_name)
 
     # 13b. Link cancellation tokens so cancelling the parent propagates to the child.
-    parent_cancel = getattr(session.coordinator, "cancellation", None)
+    parent_cancel = getattr(parent_session.coordinator, "cancellation", None)
     child_cancel = getattr(child_session.coordinator, "cancellation", None)
     if parent_cancel and child_cancel:
         parent_cancel.register_child(child_cancel)
