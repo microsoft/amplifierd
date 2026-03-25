@@ -189,6 +189,7 @@ class MetadataSaveHook:
         self._session = session
         self._session_dir = session_dir
         self._initial_metadata = initial_metadata
+        self._write_lock = asyncio.Lock()
 
     async def __call__(self, event: str, data: dict[str, Any]) -> Any:
         from amplifier_core.models import HookResult
@@ -210,7 +211,8 @@ class MetadataSaveHook:
                 updates = {**self._initial_metadata, **updates}
                 self._initial_metadata = None
 
-            write_metadata(self._session_dir, updates)
+            async with self._write_lock:
+                await asyncio.to_thread(write_metadata, self._session_dir, updates)
 
             # Bridge: emit prompt:complete so hooks-session-naming fires.
             # Some orchestrators (e.g. loop-streaming) only emit
