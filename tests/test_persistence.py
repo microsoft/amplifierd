@@ -162,6 +162,100 @@ class TestTranscriptSaveHook:
 
 
 @pytest.mark.unit
+class TestMetadataSaveHook:
+    """Tests for MetadataSaveHook."""
+
+    def _make_hook(self, tmp_path: Path, initial_metadata: dict | None = None):
+        from amplifierd.persistence import MetadataSaveHook
+
+        messages = [{"role": "user", "content": "hello"}]
+        context = MagicMock()
+        context.get_messages = AsyncMock(return_value=messages)
+        coordinator = MagicMock()
+        coordinator.get = MagicMock(return_value=context)
+        coordinator.hooks = MagicMock()
+        coordinator.hooks.emit = AsyncMock()
+        session = SimpleNamespace(coordinator=coordinator, session_id="test-session")
+        session_dir = tmp_path / "session-abc"
+        session_dir.mkdir()
+        return MetadataSaveHook(session, session_dir, initial_metadata)
+
+    @pytest.mark.asyncio
+    async def test_write_is_offloaded_to_thread(self, tmp_path: Path) -> None:
+        """write_metadata must be called from a worker thread, not the event loop."""
+        import threading
+        from unittest.mock import patch
+
+        main_thread = threading.current_thread()
+        call_threads: list[threading.Thread] = []
+
+        def capturing_write(*args: Any, **kwargs: Any) -> None:
+            call_threads.append(threading.current_thread())
+            write_metadata(*args, **kwargs)
+
+        hook = self._make_hook(tmp_path)
+        with patch("amplifierd.persistence.write_metadata", capturing_write):
+            await hook("orchestrator:complete", {})
+
+        assert call_threads, "write_metadata was never called"
+        assert call_threads[0] is not main_thread, (
+            "write_metadata was called on the event-loop thread — "
+            "it must be offloaded via asyncio.to_thread()"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_writes_are_serialized(self, tmp_path: Path) -> None:
+        """Concurrent orchestrator:complete events must not race on metadata.json."""
+        import asyncio
+        from unittest.mock import patch
+
+        write_order: list[int] = []
+
+        original_write = __import__(
+            "amplifierd.persistence", fromlist=["write_metadata"]
+        ).write_metadata
+
+        call_count = 0
+
+        def slow_write(session_dir: Any, metadata: Any) -> None:
+            nonlocal call_count
+            call_count += 1
+            n = call_count
+            import time
+
+            time.sleep(0.05)  # simulate slow disk
+            write_order.append(n)
+            original_write(session_dir, metadata)
+
+        hook = self._make_hook(tmp_path)
+        with patch("amplifierd.persistence.write_metadata", slow_write):
+            await asyncio.gather(
+                hook("orchestrator:complete", {}),
+                hook("orchestrator:complete", {}),
+            )
+
+        # Both writes must have completed (no lost calls)
+        assert len(write_order) == 2, f"Expected 2 writes, got {len(write_order)}"
+
+    @pytest.mark.asyncio
+    async def test_initial_metadata_written_on_first_call(self, tmp_path: Path) -> None:
+        """Initial metadata (session identity) must be flushed on the very first turn."""
+        import json
+
+        hook = self._make_hook(
+            tmp_path,
+            initial_metadata={"session_id": "abc", "bundle": "distro"},
+        )
+        await hook("orchestrator:complete", {})
+
+        session_dir = tmp_path / "session-abc"
+        meta = json.loads((session_dir / "metadata.json").read_text())
+        assert meta["session_id"] == "abc"
+        assert meta["bundle"] == "distro"
+        assert meta["turn_count"] == 1
+
+
+@pytest.mark.unit
 class TestRegisterPersistenceHooks:
     """Tests for register_persistence_hooks()."""
 
