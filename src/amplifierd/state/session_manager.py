@@ -359,7 +359,7 @@ class SessionManager:
 
         # 2. Handle orphaned tool calls
         try:
-            from amplifier_foundation.session import (
+            from amplifier_lib.session import (
                 add_synthetic_tool_results,
                 find_orphaned_tool_calls,
             )
@@ -373,9 +373,7 @@ class SessionManager:
                     session_id,
                 )
         except ImportError:
-            logger.warning(
-                "amplifier_foundation.session helpers not available; skipping orphan handling"
-            )
+            logger.warning("amplifier_lib.session helpers not available; skipping orphan handling")
 
         # 3. Load metadata to determine bundle and working_dir
         metadata = await asyncio.to_thread(load_metadata, session_dir)
