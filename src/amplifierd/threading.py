@@ -75,7 +75,7 @@ def wrap_tools_for_threading(session: Any) -> None:
         log.debug("wrap_tools_for_threading: coordinator has no .get() method, skipping")
         return
 
-    tools = get_fn("tools")
+    tools: Any = get_fn("tools")
     if not tools:
         log.debug("wrap_tools_for_threading: no tools found in coordinator, skipping")
         return

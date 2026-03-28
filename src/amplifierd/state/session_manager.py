@@ -269,6 +269,11 @@ class SessionManager:
 
         session = await prepared.create_session(session_cwd=Path(wd))
 
+        # Wrap tools to run execute() off the event loop (prevents blocking SSE)
+        from amplifierd.threading import wrap_tools_for_threading
+
+        wrap_tools_for_threading(session)
+
         # Register transcript/metadata persistence hooks
         if self._projects_dir:
             from amplifierd.persistence import register_persistence_hooks
@@ -415,6 +420,11 @@ class SessionManager:
             is_resumed=True,
             session_cwd=Path(working_dir),
         )
+
+        # Wrap tools to run execute() off the event loop (prevents blocking SSE)
+        from amplifierd.threading import wrap_tools_for_threading
+
+        wrap_tools_for_threading(session)
 
         # 5. Inject transcript into context (preserving system prompt)
         context = session.coordinator.get("context")

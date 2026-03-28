@@ -17,6 +17,7 @@ class TestThreadedToolWrapper:
         class FakeTool:
             name = "fake"
             description = "A fake tool"
+
             async def execute(self, input: dict[str, Any]) -> str:
                 return f"result:{input['x']}"
 
@@ -29,6 +30,7 @@ class TestThreadedToolWrapper:
 
         class LoopSniffingTool:
             name = "sniffer"
+
             async def execute(self, input: dict[str, Any]) -> str:
                 loop = asyncio.get_running_loop()
                 captured_loop_ids.append(id(loop))
@@ -43,6 +45,7 @@ class TestThreadedToolWrapper:
     async def test_execute_propagates_exceptions(self):
         class ExplodingTool:
             name = "exploder"
+
             async def execute(self, input: dict[str, Any]) -> None:
                 raise ValueError("kaboom")
 
@@ -55,6 +58,7 @@ class TestThreadedToolWrapper:
             name = "rich-tool"
             description = "A tool with many attributes"
             input_schema = {"type": "object"}
+
             async def execute(self, input: dict[str, Any]) -> str:
                 return ""
 
@@ -73,6 +77,7 @@ class TestThreadedToolWrapper:
     async def test_does_not_block_event_loop(self):
         class SlowTool:
             name = "slow"
+
             async def execute(self, input: dict[str, Any]) -> str:
                 time.sleep(0.1)
                 return "slow-done"
