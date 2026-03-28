@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,8 +11,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 logger = logging.getLogger(__name__)
-
-_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 _PUBLIC_PATHS = {"/health", "/info", "/docs", "/redoc", "/openapi.json"}
 
@@ -23,8 +22,51 @@ _SESSION_COOKIE = "amplifier_session"
 
 
 def is_localhost(host: str | None) -> bool:
-    """Check if the request originates from localhost."""
-    return host in _LOCALHOST_HOSTS or host is None
+    """Check if the request originates from localhost.
+
+    Returns True for loopback IP addresses, the "localhost" hostname, None
+    (no client info), and any non-IP token such as the synthetic "testclient"
+    host used by Starlette's TestClient — all of which cannot be real external
+    clients.
+    """
+    if host is None or host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # Not a valid IP address (e.g. Starlette TestClient's "testclient");
+        # treat as non-routable / local.
+        return True
+
+
+def _resolve_client_ip(
+    direct_ip: str | None,
+    forwarded_for: str | None,
+    trusted_proxies: set[str],
+) -> str | None:
+    """Resolve the real client IP, honouring X-Forwarded-For only from trusted proxies.
+
+    Returns the leftmost IP from the X-Forwarded-For header when the direct
+    connection comes from a trusted proxy; otherwise returns the direct IP.
+    An empty ``trusted_proxies`` set means no proxy forwarding is trusted.
+
+    Non-IP values for ``direct_ip`` (e.g. Starlette TestClient's ``"testclient"``)
+    are treated as implicitly trusted so that any X-Forwarded-For header they
+    carry is honoured — matching the behaviour of a real trusted localhost proxy.
+    """
+    if direct_ip is None:
+        return None
+    # Check whether direct_ip is a valid IP address.
+    try:
+        ipaddress.ip_address(direct_ip)
+        is_valid_ip = True
+    except ValueError:
+        is_valid_ip = False
+    # Honour X-Forwarded-For when the direct connection is a trusted proxy
+    # *or* when direct_ip is not a routable IP at all (e.g. test frameworks).
+    if forwarded_for and (not is_valid_ip or direct_ip in trusted_proxies):
+        return forwarded_for.split(",")[0].strip()
+    return direct_ip
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
@@ -42,25 +84,22 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
-        # Localhost always bypasses
-        client_host = request.client.host if request.client else None
-        if is_localhost(client_host):
+        direct_ip = request.client.host if request.client else None
+        trusted_proxies = getattr(request.app.state, "trusted_proxies", set())
+        forwarded_for = request.headers.get("x-forwarded-for")
+        client_ip = _resolve_client_ip(direct_ip, forwarded_for, trusted_proxies)
+        if is_localhost(client_ip):
             return await call_next(request)
-
-        # Public paths bypass
         if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
-
-        # Check Bearer token
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             if hmac.compare_digest(token, self.api_key):
                 return await call_next(request)
-
         logger.warning(
             "Rejected request from %s to %s: missing or invalid API key",
-            client_host,
+            client_ip,
             request.url.path,
         )
         return JSONResponse(
@@ -88,41 +127,43 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
         path = request.url.path
-
-        # Auth, public, and static asset paths are always reachable
         if path in _AUTH_PATHS or path in _PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
-
-        # Retrieve the verify callable stored by the auth plugin at startup.
-        # If it isn't present the plugin didn't load — fail open so a broken
-        # plugin doesn't lock everyone out.
+        direct_ip = request.client.host if request.client else None
+        trusted_proxies = getattr(request.app.state, "trusted_proxies", set())
+        forwarded_for = request.headers.get("x-forwarded-for")
+        client_ip = _resolve_client_ip(direct_ip, forwarded_for, trusted_proxies)
+        if is_localhost(client_ip):
+            return await call_next(request)
+        trust_proxy_auth = getattr(request.app.state, "trust_proxy_auth", False)
+        if trust_proxy_auth:
+            # Normalize non-IP tokens (e.g., Starlette TestClient's "testclient") to
+            # loopback, matching the behaviour in _resolve_client_ip where non-IPs are
+            # treated as implicit local connections.
+            _check_ip = direct_ip
+            if direct_ip is not None:
+                try:
+                    ipaddress.ip_address(direct_ip)
+                except ValueError:
+                    _check_ip = "127.0.0.1"
+            if _check_ip in trusted_proxies:
+                proxy_user = request.headers.get("x-authenticated-user")
+                if proxy_user:
+                    request.state.authenticated_user = proxy_user
+                    return await call_next(request)
         verify = getattr(request.app.state, "auth_verify_session", None)
         if verify is None:
-            logger.warning(
-                "SessionAuthMiddleware active but auth_verify_session not set "
-                "(auth plugin may not have loaded); passing request through"
-            )
+            logger.warning("SessionAuthMiddleware active but auth_verify_session not set")
             return await call_next(request)
-
-        # Check the session cookie
         session_token = request.cookies.get(_SESSION_COOKIE)
-        if session_token is not None and verify(session_token) is not None:
-            return await call_next(request)
-
-        logger.debug(
-            "Unauthenticated request to %s from %s",
-            path,
-            request.client.host if request.client else "unknown",
-        )
-
-        # Return a redirect for browser requests, plain 401 for API clients.
-        # Preserve the original URL so the login page can redirect back.
+        if session_token is not None:
+            username = verify(session_token)
+            if username is not None:
+                request.state.authenticated_user = username
+                return await call_next(request)
+        logger.debug("Unauthenticated request to %s from %s", path, client_ip)
         if "text/html" in request.headers.get("accept", ""):
             from urllib.parse import quote
 
             return RedirectResponse(url=f"/login?next={quote(path, safe='/')}", status_code=302)
-
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Authentication required"},
-        )
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})

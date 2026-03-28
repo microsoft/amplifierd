@@ -19,8 +19,14 @@ from amplifierd.state.session_manager import SessionManager
 
 @pytest.fixture()
 def client(tmp_path: Path) -> Generator[TestClient]:
-    """Create a test client with an isolated session_manager."""
-    app = create_app()
+    """Create a test client with an isolated session_manager.
+
+    default_bundle=None prevents the lifespan from starting a prewarm background
+    task (which spawns an asyncio.to_thread worker).  Without it, TestClient.__exit__
+    can block waiting for that worker thread, causing spurious 30-second timeouts
+    when running the full test suite under load.
+    """
+    app = create_app(DaemonSettings(default_bundle=None))
     with TestClient(app) as c:
         # Override AFTER lifespan so the real projects_dir is not scanned
         event_bus = EventBus()

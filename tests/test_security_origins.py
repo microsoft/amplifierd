@@ -50,3 +50,30 @@ class TestIsOriginAllowed:
 
     def test_non_matching_origin_rejected(self):
         assert is_origin_allowed("https://evil.com", {"localhost", "tail1234.ts.net"}) is False
+
+
+@pytest.mark.unit
+class TestCorsOriginsWiredIn:
+    """Integration test verifying create_app() wires CORSMiddleware with build_allowed_origins()."""
+
+    def test_create_app_does_not_use_wildcard_origins(self):
+        from amplifierd.app import create_app
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings()
+        app = create_app(settings=settings)
+        cors_middleware = None
+        inner = app.build_middleware_stack()
+        while inner is not None:
+            if hasattr(inner, "allow_origins"):
+                cors_middleware = inner
+                break
+            inner = getattr(inner, "app", None)
+        assert cors_middleware is not None, "CORSMiddleware not found in app"
+        assert "*" not in cors_middleware.allow_origins, (
+            "CORS should use build_allowed_origins(), not wildcard ['*']"
+        )
+        assert (
+            "localhost" in cors_middleware.allow_origins
+            or "127.0.0.1" in cors_middleware.allow_origins
+        )

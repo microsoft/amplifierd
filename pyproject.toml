@@ -51,6 +51,8 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+timeout_func_only = true
+timeout_method = "thread"
 markers = [
     "unit: unit tests",
     "integration: integration tests",
@@ -63,3 +65,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[dependency-groups]
+dev = [
+    "pytest-timeout>=2.4.0",
+]

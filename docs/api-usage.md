@@ -35,6 +35,28 @@ POST /sessions/{id}  POST .../execute   DELETE /sessions/{id}
 
 Sessions are created by the bundle and agent management endpoints. Once you have a session ID, you can send prompts to it repeatedly -- each prompt is a new "turn" in the conversation. The session retains context across turns.
 
+## Authentication
+
+amplifierd uses a layered auth model depending on how you deploy it:
+
+**1. Localhost (default)** — No authentication needed. When the daemon is bound to `127.0.0.1` (the default), all requests are accepted without credentials. Only local processes can reach it, so the bind address is the security boundary.
+
+**2. API Key** (`AMPLIFIERD_API_KEY` set) — Every request must include an `Authorization` header:
+
+```
+Authorization: Bearer <your-api-key>
+```
+
+Requests without this header return `401 Unauthorized`. Set the key via environment variable before starting the daemon:
+
+```bash
+AMPLIFIERD_API_KEY=my-secret-key amplifierd serve --host 0.0.0.0
+```
+
+**3. Proxy Auth** (`AMPLIFIERD_TRUST_PROXY_AUTH=true`) — When amplifierd is deployed behind a reverse proxy that handles authentication (nginx, Caddy, Tailscale Serve, etc.), the proxy injects an `X-Authenticated-User` header after verifying the user. No client-side auth is needed; the proxy handles it. amplifierd trusts this header only from IP addresses in `AMPLIFIERD_TRUSTED_PROXIES` (defaults to localhost).
+
+---
+
 ## Pattern 1: Synchronous request/response
 
 The simplest integration. Send a prompt, wait for the complete response.
@@ -43,6 +65,7 @@ The simplest integration. Send a prompt, wait for the complete response.
 # Execute a prompt (blocks until complete)
 curl -X POST http://127.0.0.1:8410/sessions/$SESSION_ID/execute \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AMPLIFIERD_API_KEY" \
   -d '{"prompt": "What files are in the current directory?"}'
 ```
 
@@ -315,9 +338,16 @@ import httpx
 
 
 class AmplifierdClient:
-    def __init__(self, base_url: str = "http://127.0.0.1:8410"):
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8410",
+        api_key: str | None = None,
+    ):
         self.base = base_url
-        self.http = httpx.Client(base_url=base_url, timeout=300.0)
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self.http = httpx.Client(base_url=base_url, timeout=300.0, headers=headers)
 
     # -- Health --------------------------------------------------------
 
@@ -391,7 +421,11 @@ class AmplifierdClient:
 Usage:
 
 ```python
+# Localhost (no auth needed)
 client = AmplifierdClient()
+
+# Network-exposed with API key
+client = AmplifierdClient("http://my-server:8410", api_key="my-secret-key")
 
 # Synchronous
 response = client.execute(session_id, "What is this project?")

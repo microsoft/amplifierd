@@ -216,3 +216,55 @@ class TestDaemonSettings:
         monkeypatch.setenv("AMPLIFIERD_AUTH_ENABLED", "true")
         settings = DaemonSettings(_settings_dir=tmp_path)
         assert settings.auth_enabled is True
+
+    def test_trusted_proxies_defaults_to_localhost(self, tmp_path: Path):
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.trusted_proxies == ["127.0.0.1", "::1"]
+
+    def test_trusted_proxies_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_TRUSTED_PROXIES", '["10.0.0.1","10.0.0.2"]')
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.trusted_proxies == ["10.0.0.1", "10.0.0.2"]
+
+    def test_trust_proxy_auth_defaults_to_false(self, tmp_path: Path):
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.trust_proxy_auth is False
+
+    def test_trust_proxy_auth_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_TRUST_PROXY_AUTH", "true")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.trust_proxy_auth is True
+
+    def test_cookie_secure_defaults_to_auto(self, tmp_path: Path):
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.cookie_secure == "auto"
+
+    def test_cookie_secure_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_COOKIE_SECURE", "true")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.cookie_secure == "true"
+
+    def test_cookie_samesite_defaults_to_lax(self, tmp_path: Path):
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.cookie_samesite == "lax"
+
+    def test_cookie_samesite_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from amplifierd.config import DaemonSettings
+
+        monkeypatch.setenv("AMPLIFIERD_COOKIE_SAMESITE", "strict")
+        settings = DaemonSettings(_settings_dir=tmp_path)
+        assert settings.cookie_samesite == "strict"

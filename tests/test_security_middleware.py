@@ -7,8 +7,9 @@ from unittest.mock import patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
-from amplifierd.security.middleware import ApiKeyMiddleware, is_localhost
+from amplifierd.security.middleware import ApiKeyMiddleware, _resolve_client_ip, is_localhost
 
 
 @pytest.mark.unit
@@ -102,3 +103,150 @@ class TestApiKeyMiddleware:
         with patch("amplifierd.security.middleware.is_localhost", return_value=True):
             resp = client.get("/sessions")
         assert resp.status_code == 200
+
+
+@pytest.mark.unit
+class TestResolveClientIp:
+    """Tests for _resolve_client_ip helper function."""
+
+    def test_no_forwarded_header_returns_direct_ip(self):
+        assert _resolve_client_ip("192.168.1.100", None, {"127.0.0.1", "::1"}) == "192.168.1.100"
+
+    def test_untrusted_proxy_ignores_forwarded_header(self):
+        assert _resolve_client_ip("10.0.0.5", "203.0.113.50", {"127.0.0.1", "::1"}) == "10.0.0.5"
+
+    def test_trusted_proxy_uses_forwarded_header(self):
+        assert (
+            _resolve_client_ip("127.0.0.1", "203.0.113.50", {"127.0.0.1", "::1"}) == "203.0.113.50"
+        )
+
+    def test_trusted_proxy_uses_leftmost_ip(self):
+        assert (
+            _resolve_client_ip("127.0.0.1", "203.0.113.50, 10.0.0.1", {"127.0.0.1", "::1"})
+            == "203.0.113.50"
+        )
+
+    def test_none_direct_ip_returns_none(self):
+        assert _resolve_client_ip(None, None, {"127.0.0.1", "::1"}) is None
+
+
+def _make_session_auth_app() -> FastAPI:
+    from amplifierd.security.middleware import SessionAuthMiddleware
+
+    app = FastAPI()
+    app.state.trusted_proxies = {"127.0.0.1", "::1"}
+    app.state.auth_verify_session = lambda token: "testuser" if token.startswith("valid-") else None
+    app.add_middleware(SessionAuthMiddleware)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/dashboard")
+    async def dashboard():
+        return {"page": "dashboard"}
+
+    return app
+
+
+@pytest.mark.unit
+class TestSessionAuthMiddlewareProxyAware:
+    def test_remote_client_via_proxy_requires_session(self):
+        app = _make_session_auth_app()
+        client = TestClient(app)
+        resp = client.get("/dashboard", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert resp.status_code in (401, 302)
+
+    def test_genuine_localhost_bypasses_session_auth(self):
+        app = _make_session_auth_app()
+        client = TestClient(app)
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+
+    def test_public_paths_bypass_for_remote_via_proxy(self):
+        app = _make_session_auth_app()
+        client = TestClient(app)
+        resp = client.get("/health", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert resp.status_code == 200
+
+
+def _make_proxy_auth_app(
+    trusted_proxies: set[str] | None = None,
+    trust_proxy_auth: bool = True,
+) -> FastAPI:
+    from amplifierd.security.middleware import SessionAuthMiddleware
+
+    app = FastAPI()
+    app.state.trusted_proxies = (
+        trusted_proxies if trusted_proxies is not None else {"127.0.0.1", "::1"}
+    )
+    app.state.trust_proxy_auth = trust_proxy_auth
+    app.state.auth_verify_session = lambda token: "testuser" if token.startswith("valid-") else None
+    app.add_middleware(SessionAuthMiddleware)
+
+    @app.get("/dashboard")
+    async def dashboard(request: Request):
+        user = getattr(request.state, "authenticated_user", None)
+        return {"page": "dashboard", "user": user}
+
+    return app
+
+
+@pytest.mark.unit
+class TestProxyAuthTrust:
+    """Tests for X-Authenticated-User proxy auth trust mode in SessionAuthMiddleware."""
+
+    def test_trusted_proxy_with_x_authenticated_user_passes(self):
+        """A trusted proxy sending X-Authenticated-User header grants access with that user."""
+        app = _make_proxy_auth_app()
+        client = TestClient(app)
+        resp = client.get(
+            "/dashboard",
+            headers={
+                "X-Forwarded-For": "203.0.113.50",
+                "X-Authenticated-User": "proxyuser",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["user"] == "proxyuser"
+
+    def test_untrusted_source_with_x_authenticated_user_rejected(self):
+        """An untrusted source sending X-Authenticated-User header is rejected."""
+        # localhost (127.0.0.1) is NOT in trusted_proxies
+        app = _make_proxy_auth_app(trusted_proxies={"10.0.0.99"})
+        client = TestClient(app)
+        resp = client.get(
+            "/dashboard",
+            headers={
+                "X-Forwarded-For": "203.0.113.50",
+                "X-Authenticated-User": "proxyuser",
+            },
+        )
+        assert resp.status_code in (401, 302)
+
+    def test_proxy_auth_disabled_ignores_header(self):
+        """When trust_proxy_auth=False, X-Authenticated-User header is ignored."""
+        app = _make_proxy_auth_app(trust_proxy_auth=False)
+        client = TestClient(app)
+        resp = client.get(
+            "/dashboard",
+            headers={
+                "X-Forwarded-For": "203.0.113.50",
+                "X-Authenticated-User": "proxyuser",
+            },
+        )
+        assert resp.status_code in (401, 302)
+
+    def test_proxy_auth_sets_user_on_request_state(self):
+        """X-Authenticated-User from trusted proxy is set on request.state.authenticated_user."""
+        app = _make_proxy_auth_app()
+        client = TestClient(app)
+        resp = client.get(
+            "/dashboard",
+            headers={
+                "X-Forwarded-For": "203.0.113.50",
+                "X-Authenticated-User": "proxyuser",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["user"] == "proxyuser"
