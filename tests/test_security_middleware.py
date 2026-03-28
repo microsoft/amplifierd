@@ -106,6 +106,8 @@ class TestApiKeyMiddleware:
 
 @pytest.mark.unit
 class TestResolveClientIp:
+    """Tests for _resolve_client_ip helper function."""
+
     def test_no_forwarded_header_returns_direct_ip(self):
         assert _resolve_client_ip("192.168.1.100", None, {"127.0.0.1", "::1"}) == "192.168.1.100"
 
