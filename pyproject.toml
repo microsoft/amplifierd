@@ -51,6 +51,7 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+timeout_func_only = true
 markers = [
     "unit: unit tests",
     "integration: integration tests",
