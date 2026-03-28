@@ -16,6 +16,7 @@ from amplifierd.config import DaemonSettings
 from amplifierd.errors import register_error_handlers
 from amplifierd.plugins import discover_plugins
 from amplifierd.routes import ALL_ROUTERS
+from amplifierd.security.origins import build_allowed_origins
 from amplifierd.state.event_bus import EventBus
 from amplifierd.state.session_manager import SessionManager
 
@@ -301,10 +302,14 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
                 "from localhost (127.0.0.1, ::1)."
             )
 
-    # CORS middleware — configurable via settings.allowed_origins
+    # CORS middleware — use dynamic allow-list unless user explicitly configured origins
+    extra_origins = (
+        resolved_settings.allowed_origins if resolved_settings.allowed_origins != ["*"] else None
+    )
+    cors_origins = build_allowed_origins(extra=extra_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=resolved_settings.allowed_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
