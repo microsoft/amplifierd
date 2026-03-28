@@ -332,7 +332,7 @@ async def _spawn_with_event_forwarding(
 
     # 12b. Register child in SessionManager — creates a SessionHandle whose
     #      __init__ calls _wire_events(), hooking all kernel events to EventBus.
-    child_handle = session_manager.register(
+    child_handle = await session_manager.register(
         session=child_session,
         prepared_bundle=None,
         bundle_name=agent_name,
