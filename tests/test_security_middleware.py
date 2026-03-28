@@ -129,6 +129,46 @@ class TestResolveClientIp:
         assert _resolve_client_ip(None, None, {"127.0.0.1", "::1"}) is None
 
 
+def _make_session_auth_app() -> FastAPI:
+    from amplifierd.security.middleware import SessionAuthMiddleware
+
+    app = FastAPI()
+    app.state.trusted_proxies = {"127.0.0.1", "::1"}
+    app.state.auth_verify_session = lambda token: "testuser" if token.startswith("valid-") else None
+    app.add_middleware(SessionAuthMiddleware)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/dashboard")
+    async def dashboard():
+        return {"page": "dashboard"}
+
+    return app
+
+
+@pytest.mark.unit
+class TestSessionAuthMiddlewareProxyAware:
+    def test_remote_client_via_proxy_requires_session(self):
+        app = _make_session_auth_app()
+        client = TestClient(app)
+        resp = client.get("/dashboard", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert resp.status_code in (401, 302)
+
+    def test_genuine_localhost_bypasses_session_auth(self):
+        app = _make_session_auth_app()
+        client = TestClient(app, client=("127.0.0.1", 50000))
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+
+    def test_public_paths_bypass_for_remote_via_proxy(self):
+        app = _make_session_auth_app()
+        client = TestClient(app)
+        resp = client.get("/health", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert resp.status_code == 200
+
+
 @pytest.mark.unit
 class TestApiKeyMiddlewareProxyAware:
     """Integration tests for ApiKeyMiddleware proxy-aware behaviour.

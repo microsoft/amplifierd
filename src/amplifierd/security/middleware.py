@@ -103,41 +103,24 @@ class SessionAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
         path = request.url.path
-
-        # Auth, public, and static asset paths are always reachable
         if path in _AUTH_PATHS or path in _PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
-
-        # Retrieve the verify callable stored by the auth plugin at startup.
-        # If it isn't present the plugin didn't load — fail open so a broken
-        # plugin doesn't lock everyone out.
+        direct_ip = request.client.host if request.client else None
+        trusted_proxies = getattr(request.app.state, "trusted_proxies", set())
+        forwarded_for = request.headers.get("x-forwarded-for")
+        client_ip = _resolve_client_ip(direct_ip, forwarded_for, trusted_proxies)
+        if is_localhost(client_ip):
+            return await call_next(request)
         verify = getattr(request.app.state, "auth_verify_session", None)
         if verify is None:
-            logger.warning(
-                "SessionAuthMiddleware active but auth_verify_session not set "
-                "(auth plugin may not have loaded); passing request through"
-            )
+            logger.warning("SessionAuthMiddleware active but auth_verify_session not set")
             return await call_next(request)
-
-        # Check the session cookie
         session_token = request.cookies.get(_SESSION_COOKIE)
         if session_token is not None and verify(session_token) is not None:
             return await call_next(request)
-
-        logger.debug(
-            "Unauthenticated request to %s from %s",
-            path,
-            request.client.host if request.client else "unknown",
-        )
-
-        # Return a redirect for browser requests, plain 401 for API clients.
-        # Preserve the original URL so the login page can redirect back.
+        logger.debug("Unauthenticated request to %s from %s", path, client_ip)
         if "text/html" in request.headers.get("accept", ""):
             from urllib.parse import quote
 
             return RedirectResponse(url=f"/login?next={quote(path, safe='/')}", status_code=302)
-
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Authentication required"},
-        )
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
