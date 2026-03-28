@@ -51,7 +51,9 @@ class ThreadedToolWrapper:
 def wrap_tools_for_threading(session: Any) -> None:
     """Replace tools in *session*'s coordinator with :class:`ThreadedToolWrapper` instances.
 
-    Safe to call even when the session has no coordinator or no tools.
+    Safe to call even when the session has no coordinator or no tools, and
+    when the coordinator does not expose a ``.get()`` method (e.g. it is a
+    ``types.SimpleNamespace``).
 
     Typical usage::
 
@@ -68,11 +70,22 @@ def wrap_tools_for_threading(session: Any) -> None:
         log.debug("wrap_tools_for_threading: session has no coordinator, skipping")
         return
 
-    tools = coordinator.get("tools")
+    get_fn = getattr(coordinator, "get", None)
+    if get_fn is None or not callable(get_fn):
+        log.debug("wrap_tools_for_threading: coordinator has no .get() method, skipping")
+        return
+
+    tools = get_fn("tools")
     if not tools:
         log.debug("wrap_tools_for_threading: no tools found in coordinator, skipping")
         return
 
-    wrapped = [ThreadedToolWrapper(tool) for tool in tools]
-    coordinator["tools"] = wrapped
-    log.debug("wrap_tools_for_threading: wrapped %d tool(s)", len(wrapped))
+    if isinstance(tools, dict):
+        # Mutate the dict in-place so callers holding a reference see the update.
+        for key in list(tools):
+            tools[key] = ThreadedToolWrapper(tools[key])
+        log.debug("wrap_tools_for_threading: wrapped %d tool(s)", len(tools))
+    else:
+        wrapped = [ThreadedToolWrapper(tool) for tool in tools]
+        coordinator["tools"] = wrapped
+        log.debug("wrap_tools_for_threading: wrapped %d tool(s)", len(wrapped))
