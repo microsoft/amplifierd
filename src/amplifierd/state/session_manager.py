@@ -262,7 +262,7 @@ class SessionManager:
             # so the activation step downloads and installs their dependencies.
             from amplifierd.providers import inject_providers, load_provider_config
 
-            providers = load_provider_config()
+            providers = await asyncio.to_thread(load_provider_config)
             inject_providers(bundle, providers)
 
             prepared = await bundle.prepare()
@@ -410,7 +410,7 @@ class SessionManager:
 
             from amplifierd.providers import inject_providers, load_provider_config
 
-            providers = load_provider_config()
+            providers = await asyncio.to_thread(load_provider_config)
             inject_providers(bundle, providers)
 
             prepared = await bundle.prepare()
