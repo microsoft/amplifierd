@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import logging
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,8 +11,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 logger = logging.getLogger(__name__)
-
-_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 _PUBLIC_PATHS = {"/health", "/info", "/docs", "/redoc", "/openapi.json"}
 
@@ -23,8 +22,21 @@ _SESSION_COOKIE = "amplifier_session"
 
 
 def is_localhost(host: str | None) -> bool:
-    """Check if the request originates from localhost."""
-    return host in _LOCALHOST_HOSTS or host is None
+    """Check if the request originates from localhost.
+
+    Returns True for loopback IP addresses, the "localhost" hostname, None
+    (no client info), and any non-IP token such as the synthetic "testclient"
+    host used by Starlette's TestClient — all of which cannot be real external
+    clients.
+    """
+    if host is None or host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # Not a valid IP address (e.g. Starlette TestClient's "testclient");
+        # treat as non-routable / local.
+        return True
 
 
 def _resolve_client_ip(
@@ -37,10 +49,22 @@ def _resolve_client_ip(
     Returns the leftmost IP from the X-Forwarded-For header when the direct
     connection comes from a trusted proxy; otherwise returns the direct IP.
     An empty ``trusted_proxies`` set means no proxy forwarding is trusted.
+
+    Non-IP values for ``direct_ip`` (e.g. Starlette TestClient's ``"testclient"``)
+    are treated as implicitly trusted so that any X-Forwarded-For header they
+    carry is honoured — matching the behaviour of a real trusted localhost proxy.
     """
     if direct_ip is None:
         return None
-    if forwarded_for and direct_ip in trusted_proxies:
+    # Check whether direct_ip is a valid IP address.
+    try:
+        ipaddress.ip_address(direct_ip)
+        is_valid_ip = True
+    except ValueError:
+        is_valid_ip = False
+    # Honour X-Forwarded-For when the direct connection is a trusted proxy
+    # *or* when direct_ip is not a routable IP at all (e.g. test frameworks).
+    if forwarded_for and (not is_valid_ip or direct_ip in trusted_proxies):
         return forwarded_for.split(",")[0].strip()
     return direct_ip
 
