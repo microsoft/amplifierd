@@ -32,6 +32,12 @@ def _resolve_client_ip(
     forwarded_for: str | None,
     trusted_proxies: set[str],
 ) -> str | None:
+    """Resolve the real client IP, honouring X-Forwarded-For only from trusted proxies.
+
+    Returns the leftmost IP from the X-Forwarded-For header when the direct
+    connection comes from a trusted proxy; otherwise returns the direct IP.
+    An empty ``trusted_proxies`` set means no proxy forwarding is trusted.
+    """
     if direct_ip is None:
         return None
     if forwarded_for and direct_ip in trusted_proxies:

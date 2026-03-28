@@ -129,6 +129,16 @@ class TestResolveClientIp:
 
 @pytest.mark.unit
 class TestApiKeyMiddlewareProxyAware:
+    """Integration tests for ApiKeyMiddleware proxy-aware behaviour.
+
+    Note: TestClient presents its direct IP as ``"testclient"``, which is not
+    in ``trusted_proxies = {"127.0.0.1", "::1"}``.  Therefore
+    ``_resolve_client_ip`` returns ``"testclient"`` (the direct IP), not the
+    X-Forwarded-For value.  These tests verify that a non-localhost client
+    requires an API key; the unit tests in ``TestResolveClientIp`` thoroughly
+    cover the trusted-proxy header-extraction path.
+    """
+
     def test_remote_client_via_trusted_proxy_requires_api_key(self):
         app = _make_app("test-secret")
         app.state.trusted_proxies = {"127.0.0.1", "::1"}
