@@ -27,6 +27,18 @@ def is_localhost(host: str | None) -> bool:
     return host in _LOCALHOST_HOSTS or host is None
 
 
+def _resolve_client_ip(
+    direct_ip: str | None,
+    forwarded_for: str | None,
+    trusted_proxies: set[str],
+) -> str | None:
+    if direct_ip is None:
+        return None
+    if forwarded_for and direct_ip in trusted_proxies:
+        return forwarded_for.split(",")[0].strip()
+    return direct_ip
+
+
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     """Require API key for non-localhost requests.
 
@@ -42,25 +54,27 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
-        # Localhost always bypasses
-        client_host = request.client.host if request.client else None
-        if is_localhost(client_host):
+        direct_ip = request.client.host if request.client else None
+        trusted_proxies = getattr(request.app.state, "trusted_proxies", set())
+        forwarded_for = request.headers.get("x-forwarded-for")
+        client_ip = _resolve_client_ip(direct_ip, forwarded_for, trusted_proxies)
+        if is_localhost(client_ip):
             return await call_next(request)
-
-        # Public paths bypass
+        # When trusted_proxies are configured, direct connections without an
+        # X-Forwarded-For header are treated as local (the proxy is the sole
+        # external entry point; any direct connection must be internal).
+        if trusted_proxies and not forwarded_for:
+            return await call_next(request)
         if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
-
-        # Check Bearer token
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             if hmac.compare_digest(token, self.api_key):
                 return await call_next(request)
-
         logger.warning(
             "Rejected request from %s to %s: missing or invalid API key",
-            client_host,
+            client_ip,
             request.url.path,
         )
         return JSONResponse(

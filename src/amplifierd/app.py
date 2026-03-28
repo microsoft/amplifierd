@@ -289,6 +289,7 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
     )
 
     app.state.settings = resolved_settings
+    app.state.trusted_proxies = set(resolved_settings.trusted_proxies)
 
     # CORS middleware — configurable via settings.allowed_origins
     app.add_middleware(
