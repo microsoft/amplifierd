@@ -249,3 +249,54 @@ class TestSessionHandle:
         assert handle.status == SessionStatus.FAILED
         assert handle.turn_count == 1
         assert handle.last_activity >= activity_before
+
+    async def test_execute_uses_asyncio_lock(self):
+        """execute() uses an asyncio.Lock (not just status flag) for serialisation.
+
+        _execute_lock must exist as an asyncio.Lock, be acquired while executing,
+        and cause a RuntimeError when a second concurrent call is attempted while
+        the first holds the lock.
+        """
+        import asyncio
+
+        bus = EventBus()
+        mock_session = _make_mock_session(session_id="sess-lock")
+
+        gate = asyncio.Event()
+
+        async def gated_execute(prompt: str) -> str:
+            await gate.wait()
+            return "done"
+
+        mock_session.execute = AsyncMock(side_effect=gated_execute)
+
+        handle = SessionHandle(
+            session=mock_session,
+            prepared_bundle=None,
+            bundle_name="lock-bundle",
+            event_bus=bus,
+            working_dir=None,
+        )
+
+        # _execute_lock must exist and be an asyncio.Lock
+        assert hasattr(handle, "_execute_lock"), "_execute_lock attribute missing"
+        assert isinstance(handle._execute_lock, asyncio.Lock), "_execute_lock must be asyncio.Lock"
+
+        # Start first execute in background; it will block at gate.wait()
+        task1 = asyncio.create_task(handle.execute("prompt-1"))
+        await asyncio.sleep(0)  # yield so task1 acquires the lock
+
+        # Lock must be held while first execute is in-flight
+        assert handle._execute_lock.locked(), "Lock should be held during execution"
+
+        # Second concurrent call must raise immediately (lock is held)
+        with pytest.raises(RuntimeError, match="already executing"):
+            await handle.execute("prompt-2")
+
+        # Release the gate and let task1 finish
+        gate.set()
+        result = await task1
+        assert result == "done"
+
+        # Lock must be released after completion
+        assert not handle._execute_lock.locked(), "Lock should be released after execute()"
