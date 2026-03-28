@@ -223,7 +223,7 @@ async def patch_session(request: Request, session_id: str, body: PatchSessionReq
         if session_dir is not None:
             from amplifierd.persistence import write_metadata
 
-            write_metadata(session_dir, metadata_updates)
+            await asyncio.to_thread(write_metadata, session_dir, metadata_updates)
 
     # Publish session_renamed event if name changed
     if body.name is not None and handle is not None:
@@ -748,7 +748,7 @@ async def update_metadata(request: Request, session_id: str, body: dict) -> dict
     if session_dir is not None:
         from amplifierd.persistence import write_metadata
 
-        write_metadata(session_dir, body)
+        await asyncio.to_thread(write_metadata, session_dir, body)
         return {"updated": True, "session_id": session_id}
 
     detail = ProblemDetail(
