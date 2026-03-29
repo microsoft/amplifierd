@@ -90,7 +90,7 @@ async def _create_child_handle(
         from amplifier_foundation import create_child_session  # type: ignore[import-not-found]
 
         child_session = await create_child_session(parent_handle.session, agent_name)
-        child_handle = manager.register(
+        child_handle = await manager.register(
             session=child_session,
             prepared_bundle=None,
             bundle_name=agent_name,
@@ -104,7 +104,7 @@ async def _create_child_handle(
     child_session = _create_placeholder_child(
         child_session_id, parent_handle.session_id, agent_name
     )
-    child_handle = manager.register(
+    child_handle = await manager.register(
         session=child_session,
         prepared_bundle=None,
         bundle_name=agent_name,

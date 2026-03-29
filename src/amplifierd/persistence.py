@@ -210,7 +210,7 @@ class MetadataSaveHook:
                 updates = {**self._initial_metadata, **updates}
                 self._initial_metadata = None
 
-            write_metadata(self._session_dir, updates)
+            await asyncio.to_thread(write_metadata, self._session_dir, updates)
 
             # Bridge: emit prompt:complete so hooks-session-naming fires.
             # Some orchestrators (e.g. loop-streaming) only emit

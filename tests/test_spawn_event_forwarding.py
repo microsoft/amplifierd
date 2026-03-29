@@ -734,3 +734,46 @@ class TestSessionManagerSpawnWiring:
         assert call_args[0][2] == "create-test-1"
         assert call_args[1]["session_manager"] is manager
         assert call_args[1]["parent_handle"] is handle
+
+
+# ------------------------------------------------------------------
+# Tests: tool wrapping for threading
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestToolWrappingForThreading:
+    """Verify wrap_tools_for_threading is called on child session after initialize()."""
+
+    async def test_wrap_tools_called_after_initialize(self):
+        """wrap_tools_for_threading is called with child_session after initialize()."""
+        bus = EventBus()
+        manager = _make_manager(event_bus=bus)
+        parent_handle = _make_parent_handle(session_id="parent-tw-1", event_bus=bus)
+        manager._sessions["parent-tw-1"] = parent_handle  # noqa: SLF001
+
+        child_session = _make_child_session(session_id="child-tw-1", parent_id="parent-tw-1")
+        prepared = _make_mock_prepared()
+
+        from amplifierd.spawn import _spawn_with_event_forwarding
+
+        with (
+            patch("amplifier_core.AmplifierSession", return_value=child_session),
+            patch("amplifierd.threading.wrap_tools_for_threading") as mock_wrap,
+        ):
+            await _spawn_with_event_forwarding(
+                prepared=prepared,
+                child_bundle=MagicMock(),
+                agent_name="test-agent",
+                instruction="tool wrap test",
+                parent_session=_make_mock_session(session_id="parent-tw-1"),
+                sub_session_id="child-tw-1",
+                orchestrator_config=None,
+                parent_messages=None,
+                provider_preferences=None,
+                self_delegation_depth=0,
+                session_manager=manager,
+                parent_handle=parent_handle,
+            )
+
+        mock_wrap.assert_called_once_with(child_session)
