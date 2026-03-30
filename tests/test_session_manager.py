@@ -38,7 +38,7 @@ class TestSessionManager:
         mock_session.session_id = "test-123"
         mock_session.parent_id = None
 
-        handle = manager.register(
+        handle = await manager.register(
             session=mock_session,
             prepared_bundle=None,
             bundle_name="test-bundle",
@@ -52,7 +52,7 @@ class TestSessionManager:
         mock_session.parent_id = None
         mock_session.cleanup = AsyncMock()
 
-        manager.register(
+        await manager.register(
             session=mock_session,
             prepared_bundle=None,
             bundle_name="test-bundle",
@@ -66,7 +66,7 @@ class TestSessionManager:
             mock = MagicMock()
             mock.session_id = f"session-{i}"
             mock.parent_id = None
-            manager.register(session=mock, prepared_bundle=None, bundle_name="b")
+            await manager.register(session=mock, prepared_bundle=None, bundle_name="b")
 
         sessions = manager.list_sessions()
         assert len(sessions) == 3

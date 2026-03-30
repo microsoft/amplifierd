@@ -255,6 +255,11 @@ async def _spawn_with_event_forwarding(
     # 8. Initialize child session (mounts modules from mount plan)
     await child_session.initialize()
 
+    # 8b. Wrap tools to run execute() off the event loop (prevents blocking SSE)
+    from amplifierd.threading import wrap_tools_for_threading
+
+    wrap_tools_for_threading(child_session)
+
     # 9. Register self-delegation depth for recursion limiting
     if self_delegation_depth > 0:
         child_session.coordinator.register_capability(
@@ -327,7 +332,7 @@ async def _spawn_with_event_forwarding(
 
     # 12b. Register child in SessionManager — creates a SessionHandle whose
     #      __init__ calls _wire_events(), hooking all kernel events to EventBus.
-    child_handle = session_manager.register(
+    child_handle = await session_manager.register(
         session=child_session,
         prepared_bundle=None,
         bundle_name=agent_name,
