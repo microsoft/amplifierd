@@ -375,3 +375,103 @@ class TestSessionHandle:
 
         # Lock must be released after completion
         assert not handle._execute_lock.locked(), "Lock should be released after execute()"
+
+    async def test_cancel_then_reexecute_lifecycle(self):
+        """Session recovers and accepts new prompts after CancelledError.
+
+        This tests the full lifecycle: execute -> CancelledError -> status FAILED
+        -> re-execute succeeds -> status IDLE. The previous test verified status
+        and lock release, but never called execute() a second time.
+        """
+        import asyncio
+
+        bus = EventBus()
+        mock_session = _make_mock_session(session_id="sess-recover")
+
+        call_count = 0
+
+        async def _cancel_first_then_succeed(prompt: str) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise asyncio.CancelledError()
+            return "recovered"
+
+        mock_session.execute = AsyncMock(side_effect=_cancel_first_then_succeed)
+
+        handle = SessionHandle(
+            session=mock_session,
+            prepared_bundle=None,
+            bundle_name="recover-bundle",
+            event_bus=bus,
+            working_dir=None,
+        )
+
+        # First call: CancelledError
+        with pytest.raises(asyncio.CancelledError):
+            await handle.execute("first prompt")
+
+        assert handle.status == SessionStatus.FAILED
+        assert handle.turn_count == 1
+
+        # Second call: must succeed — session is not stuck
+        result = await handle.execute("second prompt")
+
+        assert result == "recovered"
+        assert handle.status == SessionStatus.IDLE
+        assert handle.turn_count == 2
+
+    async def test_is_busy_reflects_lock_and_status(self):
+        """is_busy returns True when the lock is held, regardless of status flag.
+
+        The is_busy property is the guard used by all route-level 409 checks.
+        It must be True when the lock is held (even before status transitions
+        to EXECUTING) and False when both lock is free and status is not EXECUTING.
+        """
+        import asyncio
+
+        bus = EventBus()
+        mock_session = _make_mock_session(session_id="sess-busy")
+
+        gate = asyncio.Event()
+
+        async def gated_execute(prompt: str) -> str:
+            await gate.wait()
+            return "done"
+
+        mock_session.execute = AsyncMock(side_effect=gated_execute)
+
+        handle = SessionHandle(
+            session=mock_session,
+            prepared_bundle=None,
+            bundle_name="busy-bundle",
+            event_bus=bus,
+            working_dir=None,
+        )
+
+        # Initially: not busy
+        assert handle.is_busy is False
+
+        # Start execution in background (blocks at gate)
+        task = asyncio.create_task(handle.execute("prompt"))
+        await asyncio.sleep(0)  # yield so task acquires lock
+
+        # During execution: busy (lock held AND status is EXECUTING)
+        assert handle.is_busy is True
+        assert handle._execute_lock.locked() is True
+
+        # Release and let it finish
+        gate.set()
+        await task
+
+        # After completion: not busy
+        assert handle.is_busy is False
+        assert handle.status == SessionStatus.IDLE
+
+        # After failure: check is_busy reflects FAILED (not EXECUTING)
+        mock_session.execute = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(RuntimeError):
+            await handle.execute("fail prompt")
+
+        assert handle.is_busy is False
+        assert handle.status == SessionStatus.FAILED
