@@ -192,6 +192,17 @@ class SessionHandle:
     # Mutators
     # ------------------------------------------------------------------
 
+    @property
+    def is_busy(self) -> bool:
+        """True when the session is executing or about to execute.
+
+        Checks both the status flag (observable state) AND the lock
+        (actual concurrency guard).  This closes the TOCTOU window
+        between the route-level guard and the background task acquiring
+        the lock.
+        """
+        return self._status == SessionStatus.EXECUTING or self._execute_lock.locked()
+
     def mark_stale(self) -> None:
         """Mark this session as stale."""
         self._stale = True
@@ -222,6 +233,10 @@ class SessionHandle:
                 self._status = SessionStatus.FAILED
                 raise
             finally:
+                # Catch-all: asyncio.CancelledError is BaseException (Python 3.9+);
+                # it bypasses except Exception and leaves _status stuck at EXECUTING.
+                if self._status == SessionStatus.EXECUTING:
+                    self._status = SessionStatus.FAILED
                 self._last_activity = datetime.now(UTC)
 
     async def cancel(self, immediate: bool = False) -> None:
@@ -234,4 +249,7 @@ class SessionHandle:
             await self._session.cleanup()
         except Exception:
             logger.warning("Error during session cleanup for %s", self.session_id, exc_info=True)
-        self._status = SessionStatus.COMPLETED
+        finally:
+            # Always transition to COMPLETED, even if CancelledError (BaseException)
+            # bypasses except Exception during cleanup.
+            self._status = SessionStatus.COMPLETED

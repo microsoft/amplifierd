@@ -386,3 +386,41 @@ class TestSessionPatchNameEndpoint:
         """PATCH with name on nonexistent session returns 404."""
         resp = client.patch("/sessions/ghost", json={"name": "Ghost"})
         assert resp.status_code == 404
+
+
+@pytest.mark.unit
+class TestExecuteStream409Guard:
+    """Tests for 409 guard on POST /sessions/{id}/execute/stream when session is busy."""
+
+    def test_execute_stream_returns_409_when_executing(self, client: TestClient) -> None:
+        """POST /execute/stream returns 409 with ProblemDetail when session is EXECUTING.
+
+        Regression test: the streaming endpoint previously had no guard,
+        allowing concurrent execute_stream requests to both get 202.
+        """
+        from amplifierd.state.session_handle import SessionStatus
+
+        handle = _register_handle(client, "sess-busy")
+        # Simulate session mid-execution by forcing status
+        handle._status = SessionStatus.EXECUTING  # noqa: SLF001
+
+        resp = client.post("/sessions/sess-busy/execute/stream", json={"prompt": "hello"})
+        assert resp.status_code == 409
+        data = resp.json()
+        detail = data["detail"]
+        assert detail["type"] == "https://amplifier.dev/errors/execution-in-progress"
+        assert detail["status"] == 409
+        assert "already executing" in detail["detail"]
+
+    def test_execute_returns_409_when_executing(self, client: TestClient) -> None:
+        """POST /execute returns 409 with ProblemDetail when session is EXECUTING."""
+        from amplifierd.state.session_handle import SessionStatus
+
+        handle = _register_handle(client, "sess-busy-sync")
+        handle._status = SessionStatus.EXECUTING  # noqa: SLF001
+
+        resp = client.post("/sessions/sess-busy-sync/execute", json={"prompt": "hello"})
+        assert resp.status_code == 409
+        data = resp.json()
+        detail = data["detail"]
+        assert detail["type"] == "https://amplifier.dev/errors/execution-in-progress"
