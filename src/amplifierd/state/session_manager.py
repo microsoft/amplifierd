@@ -493,8 +493,17 @@ class SessionManager:
     async def shutdown(self) -> None:
         """Gracefully shutdown all sessions (called on daemon shutdown)."""
         session_ids = list(self._sessions.keys())
+        was_cancelled = False
         for sid in session_ids:
             try:
                 await self.destroy(sid)
+            except asyncio.CancelledError:
+                # CancelledError is BaseException (Python 3.9+) and bypasses
+                # except Exception. Continue cleanup for remaining sessions;
+                # re-raise after the loop so cancellation is not swallowed.
+                logger.warning("Shutdown cancelled while destroying %s; continuing cleanup", sid)
+                was_cancelled = True
             except Exception as exc:
                 logger.warning("Error destroying session %s during shutdown: %s", sid, exc)
+        if was_cancelled:
+            raise asyncio.CancelledError

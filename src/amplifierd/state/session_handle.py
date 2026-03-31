@@ -192,6 +192,17 @@ class SessionHandle:
     # Mutators
     # ------------------------------------------------------------------
 
+    @property
+    def is_busy(self) -> bool:
+        """True when the session is executing or about to execute.
+
+        Checks both the status flag (observable state) AND the lock
+        (actual concurrency guard).  This closes the TOCTOU window
+        between the route-level guard and the background task acquiring
+        the lock.
+        """
+        return self._status == SessionStatus.EXECUTING or self._execute_lock.locked()
+
     def mark_stale(self) -> None:
         """Mark this session as stale."""
         self._stale = True
@@ -238,4 +249,7 @@ class SessionHandle:
             await self._session.cleanup()
         except Exception:
             logger.warning("Error during session cleanup for %s", self.session_id, exc_info=True)
-        self._status = SessionStatus.COMPLETED
+        finally:
+            # Always transition to COMPLETED, even if CancelledError (BaseException)
+            # bypasses except Exception during cleanup.
+            self._status = SessionStatus.COMPLETED

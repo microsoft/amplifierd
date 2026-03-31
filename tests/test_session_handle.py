@@ -185,6 +185,38 @@ class TestSessionHandle:
         assert handle.status == SessionStatus.COMPLETED
         mock_session.cleanup.assert_awaited_once()
 
+    async def test_cleanup_sets_completed_on_cancelled_error(self):
+        """cleanup() sets COMPLETED even when CancelledError bypasses except Exception.
+
+        Regression test: asyncio.CancelledError is BaseException and bypasses
+        ``except Exception:``. The status assignment must be in a ``finally:``
+        block to guarantee COMPLETED regardless of exception type.
+        """
+        import asyncio
+
+        bus = EventBus()
+        mock_session = _make_mock_session(session_id="sess-clean-cancel")
+
+        async def _raise_cancelled() -> None:
+            raise asyncio.CancelledError()
+
+        mock_session.cleanup = AsyncMock(side_effect=_raise_cancelled)
+
+        handle = SessionHandle(
+            session=mock_session,
+            prepared_bundle=None,
+            bundle_name="clean-cancel-bundle",
+            event_bus=bus,
+            working_dir=None,
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await handle.cleanup()
+
+        assert handle.status == SessionStatus.COMPLETED, (
+            "CancelledError during cleanup must not prevent COMPLETED status"
+        )
+
     async def test_cleanup_logs_warning_on_error(self, caplog):
         """cleanup() catches exceptions, logs a warning, and still sets COMPLETED."""
         bus = EventBus()
