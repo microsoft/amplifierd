@@ -70,6 +70,10 @@ class SessionIndex:
                 os.replace(tmp_name, str(self._path))
             except BaseException:
                 try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                try:
                     os.unlink(tmp_name)
                 except OSError:
                     pass

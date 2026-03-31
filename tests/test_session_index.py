@@ -34,7 +34,7 @@ def test_atomic_write(tmp_path):
         )
     )
     index.save()
-    assert not (tmp_path / "index.json.tmp").exists()
+    assert list(tmp_path.glob(".index-*.tmp")) == []
     assert (tmp_path / "index.json").exists()
 
 
