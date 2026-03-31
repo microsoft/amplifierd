@@ -178,6 +178,8 @@ async def spawn_agent_stream(
     async def _run() -> None:
         try:
             await child_handle.execute(body.instruction)
+        except asyncio.CancelledError:
+            logger.warning("Background spawn execution cancelled for child %s", child_session_id)
         except Exception:
             logger.exception("Background spawn execution failed for child %s", child_session_id)
         finally:

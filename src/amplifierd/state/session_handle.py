@@ -222,6 +222,10 @@ class SessionHandle:
                 self._status = SessionStatus.FAILED
                 raise
             finally:
+                # Catch-all: asyncio.CancelledError is BaseException (Python 3.9+);
+                # it bypasses except Exception and leaves _status stuck at EXECUTING.
+                if self._status == SessionStatus.EXECUTING:
+                    self._status = SessionStatus.FAILED
                 self._last_activity = datetime.now(UTC)
 
     async def cancel(self, immediate: bool = False) -> None:

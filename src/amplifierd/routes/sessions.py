@@ -301,12 +301,29 @@ async def execute_stream(
 ) -> ExecuteStreamAccepted:
     """Fire-and-forget streaming execution (returns immediately with correlation_id)."""
     handle = _get_handle_or_404(request, session_id)
+
+    # Guard: reject if already executing (mirrors the sync /execute endpoint)
+    if handle.status == SessionStatus.EXECUTING:
+        detail = ProblemDetail(
+            type=ErrorTypeURI.EXECUTION_IN_PROGRESS,
+            title="Execution In Progress",
+            status=409,
+            detail=f"Session '{session_id}' is already executing",
+            instance=str(request.url.path),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail.model_dump(exclude_none=True),
+        )
+
     turn_count = handle.turn_count + 1
     correlation_id = f"prompt_{session_id}_{turn_count}"
 
     async def _run() -> None:
         try:
             await handle.execute(body.prompt)
+        except asyncio.CancelledError:
+            logger.warning("Streaming execution cancelled for session %s", session_id)
         except Exception:
             logger.exception("Streaming execution failed for session %s", session_id)
         finally:

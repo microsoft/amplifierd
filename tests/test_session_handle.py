@@ -227,6 +227,49 @@ class TestSessionHandle:
         assert "IDLE" in r or "idle" in r
         assert "turns=0" in r
 
+    async def test_cancelled_error_sets_failed_status(self):
+        """CancelledError (BaseException) must transition status to FAILED, not leave EXECUTING.
+
+        Regression test: asyncio.CancelledError is a BaseException in Python 3.9+,
+        so it bypasses ``except Exception:``. Without the finally-block catch-all,
+        _status gets stuck at EXECUTING and the session permanently rejects new prompts.
+
+        See: fix/cancelled-error-status-recovery
+        """
+        import asyncio
+
+        bus = EventBus()
+        mock_session = _make_mock_session(session_id="sess-cancel-err")
+
+        async def _raise_cancelled(prompt: str) -> str:
+            raise asyncio.CancelledError()
+
+        mock_session.execute = AsyncMock(side_effect=_raise_cancelled)
+
+        handle = SessionHandle(
+            session=mock_session,
+            prepared_bundle=None,
+            bundle_name="cancel-err-bundle",
+            event_bus=bus,
+            working_dir=None,
+        )
+
+        activity_before = handle.last_activity
+
+        with pytest.raises(asyncio.CancelledError):
+            await handle.execute("doomed prompt")
+
+        assert handle.status == SessionStatus.FAILED, (
+            "CancelledError must not leave status stuck at EXECUTING"
+        )
+        assert handle.turn_count == 1
+        assert handle.last_activity >= activity_before
+
+        # Crucially: the lock must be released so the session can accept new prompts
+        assert not handle._execute_lock.locked(), (
+            "Lock must be released after CancelledError"
+        )
+
     async def test_execute_failure_sets_failed_status(self):
         """execute() sets FAILED status on exception and still updates last_activity."""
         bus = EventBus()
