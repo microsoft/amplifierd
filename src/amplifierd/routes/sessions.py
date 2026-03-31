@@ -29,7 +29,7 @@ from amplifierd.models.sessions import (
     SetModeRequest,
     StaleResponse,
 )
-from amplifierd.state.session_handle import SessionHandle, SessionStatus
+from amplifierd.state.session_handle import SessionHandle
 from amplifierd.state.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -273,7 +273,7 @@ async def delete_session(request: Request, session_id: str) -> None:
 async def execute(request: Request, session_id: str, body: ExecuteRequest) -> ExecuteResponse:
     """Execute a prompt synchronously (blocks until complete)."""
     handle = _get_handle_or_404(request, session_id)
-    if handle.status == SessionStatus.EXECUTING:
+    if handle.is_busy:
         detail = ProblemDetail(
             type=ErrorTypeURI.EXECUTION_IN_PROGRESS,
             title="Execution In Progress",
@@ -302,8 +302,10 @@ async def execute_stream(
     """Fire-and-forget streaming execution (returns immediately with correlation_id)."""
     handle = _get_handle_or_404(request, session_id)
 
-    # Guard: reject if already executing (mirrors the sync /execute endpoint)
-    if handle.status == SessionStatus.EXECUTING:
+    # Guard: reject if already executing (mirrors the sync /execute endpoint).
+    # Uses is_busy (lock + status) to close the TOCTOU window where a second
+    # request arrives before the first background task sets status to EXECUTING.
+    if handle.is_busy:
         detail = ProblemDetail(
             type=ErrorTypeURI.EXECUTION_IN_PROGRESS,
             title="Execution In Progress",
