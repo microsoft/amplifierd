@@ -134,7 +134,7 @@ class SessionManager:
         """Public helper for routes: find the on-disk directory for *session_id*."""
         return self._find_session_dir(session_id)
 
-    def register(
+    async def register(
         self,
         *,
         session: Any,  # AmplifierSession
@@ -169,7 +169,7 @@ class SessionManager:
                     project_id=project_id,
                 )
             )
-            self._index.save()
+            await asyncio.to_thread(self._index.save)
         logger.info("Registered session %s (bundle=%s)", session_id, bundle_name)
         return handle
 
@@ -262,12 +262,17 @@ class SessionManager:
             # so the activation step downloads and installs their dependencies.
             from amplifierd.providers import inject_providers, load_provider_config
 
-            providers = load_provider_config()
+            providers = await asyncio.to_thread(load_provider_config)
             inject_providers(bundle, providers)
 
             prepared = await bundle.prepare()
 
         session = await prepared.create_session(session_cwd=Path(wd))
+
+        # Wrap tools to run execute() off the event loop (prevents blocking SSE)
+        from amplifierd.threading import wrap_tools_for_threading
+
+        wrap_tools_for_threading(session)
 
         # Register transcript/metadata persistence hooks
         if self._projects_dir:
@@ -294,7 +299,7 @@ class SessionManager:
         else:
             slug = ""
 
-        handle = self.register(
+        handle = await self.register(
             session=session,
             prepared_bundle=prepared,
             bundle_name=bundle_name or bundle_uri or "unknown",
@@ -405,7 +410,7 @@ class SessionManager:
 
             from amplifierd.providers import inject_providers, load_provider_config
 
-            providers = load_provider_config()
+            providers = await asyncio.to_thread(load_provider_config)
             inject_providers(bundle, providers)
 
             prepared = await bundle.prepare()
@@ -415,6 +420,11 @@ class SessionManager:
             is_resumed=True,
             session_cwd=Path(working_dir),
         )
+
+        # Wrap tools to run execute() off the event loop (prevents blocking SSE)
+        from amplifierd.threading import wrap_tools_for_threading
+
+        wrap_tools_for_threading(session)
 
         # 5. Inject transcript into context (preserving system prompt)
         context = session.coordinator.get("context")
@@ -438,7 +448,7 @@ class SessionManager:
         project_id = session_dir.parent.parent.name if session_dir.parent.name == "sessions" else ""
 
         # 7. Register in SessionManager
-        handle = self.register(
+        handle = await self.register(
             session=session,
             prepared_bundle=prepared,
             bundle_name=bundle_name,
@@ -477,14 +487,23 @@ class SessionManager:
         await handle.cleanup()
         if self._index is not None:
             self._index.update(session_id, status="completed")
-            self._index.save()
+            await asyncio.to_thread(self._index.save)
         logger.info("Destroyed session %s", session_id)
 
     async def shutdown(self) -> None:
         """Gracefully shutdown all sessions (called on daemon shutdown)."""
         session_ids = list(self._sessions.keys())
+        was_cancelled = False
         for sid in session_ids:
             try:
                 await self.destroy(sid)
+            except asyncio.CancelledError:
+                # CancelledError is BaseException (Python 3.9+) and bypasses
+                # except Exception. Continue cleanup for remaining sessions;
+                # re-raise after the loop so cancellation is not swallowed.
+                logger.warning("Shutdown cancelled while destroying %s; continuing cleanup", sid)
+                was_cancelled = True
             except Exception as exc:
                 logger.warning("Error destroying session %s during shutdown: %s", sid, exc)
+        if was_cancelled:
+            raise asyncio.CancelledError

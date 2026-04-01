@@ -58,7 +58,7 @@ def test_list_sessions_includes_historical(tmp_path, session_manager_with_index)
     assert sid in sids
 
 
-def test_list_sessions_active_takes_priority_over_historical(tmp_path, session_manager_with_index):
+async def test_list_sessions_active_takes_priority_over_historical(tmp_path, session_manager_with_index):
     """An active in-memory session is not duplicated by the index."""
     projects_dir = tmp_path / "projects"
     projects_dir.mkdir(parents=True)
@@ -86,7 +86,7 @@ def test_list_sessions_active_takes_priority_over_historical(tmp_path, session_m
     mock_session = MagicMock()
     mock_session.session_id = sid
     mock_session.parent_id = None
-    manager.register(session=mock_session, prepared_bundle=None, bundle_name="live-bundle")
+    await manager.register(session=mock_session, prepared_bundle=None, bundle_name="live-bundle")
 
     sessions = manager.list_sessions()
     sids = [s.session_id if hasattr(s, "session_id") else s["session_id"] for s in sessions]
@@ -94,7 +94,7 @@ def test_list_sessions_active_takes_priority_over_historical(tmp_path, session_m
     assert sids.count(sid) == 1
 
 
-def test_register_adds_entry_to_index(tmp_path, session_manager_with_index):
+async def test_register_adds_entry_to_index(tmp_path, session_manager_with_index):
     """Registering a new session writes it into the SessionIndex."""
     projects_dir = tmp_path / "projects"
     projects_dir.mkdir(parents=True)
@@ -104,7 +104,7 @@ def test_register_adds_entry_to_index(tmp_path, session_manager_with_index):
     mock_session = MagicMock()
     mock_session.session_id = "new-session-xyz"
     mock_session.parent_id = None
-    manager.register(session=mock_session, prepared_bundle=None, bundle_name="my-bundle")
+    await manager.register(session=mock_session, prepared_bundle=None, bundle_name="my-bundle")
 
     # Index should know about the new session
     assert manager._index is not None  # noqa: SLF001
@@ -127,7 +127,7 @@ async def test_destroy_updates_index_status(tmp_path, session_manager_with_index
     mock_session.parent_id = None
     mock_session.cleanup = AsyncMock()
 
-    manager.register(session=mock_session, prepared_bundle=None, bundle_name="b")
+    await manager.register(session=mock_session, prepared_bundle=None, bundle_name="b")
     await manager.destroy("to-destroy-idx")
 
     assert manager._index is not None  # noqa: SLF001

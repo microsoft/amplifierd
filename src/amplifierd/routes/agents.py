@@ -90,7 +90,7 @@ async def _create_child_handle(
         from amplifier_foundation import create_child_session  # type: ignore[import-not-found]
 
         child_session = await create_child_session(parent_handle.session, agent_name)
-        child_handle = manager.register(
+        child_handle = await manager.register(
             session=child_session,
             prepared_bundle=None,
             bundle_name=agent_name,
@@ -104,7 +104,7 @@ async def _create_child_handle(
     child_session = _create_placeholder_child(
         child_session_id, parent_handle.session_id, agent_name
     )
-    child_handle = manager.register(
+    child_handle = await manager.register(
         session=child_session,
         prepared_bundle=None,
         bundle_name=agent_name,
@@ -137,6 +137,11 @@ async def spawn_agent(request: Request, session_id: str, body: SpawnRequest) -> 
     try:
         result = await child_handle.execute(body.instruction)
         output = str(result) if result is not None else None
+    except asyncio.CancelledError:
+        logger.warning(
+            "Spawn execution cancelled for session %s child %s", session_id, child_session_id
+        )
+        raise
     except Exception:
         logger.exception(
             "Spawn execution failed for session %s child %s", session_id, child_session_id
@@ -178,6 +183,8 @@ async def spawn_agent_stream(
     async def _run() -> None:
         try:
             await child_handle.execute(body.instruction)
+        except asyncio.CancelledError:
+            logger.warning("Background spawn execution cancelled for child %s", child_session_id)
         except Exception:
             logger.exception("Background spawn execution failed for child %s", child_session_id)
         finally:
@@ -210,10 +217,26 @@ async def resume_child_agent(
     _get_handle_or_404(request, session_id)  # Verify parent exists
     child_handle = _get_handle_or_404(request, child_id)  # Verify child exists
 
+    if child_handle.is_busy:
+        detail = ProblemDetail(
+            type=ErrorTypeURI.EXECUTION_IN_PROGRESS,
+            title="Execution In Progress",
+            status=409,
+            detail=f"Child session '{child_id}' is already executing",
+            instance=str(request.url.path),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail.model_dump(exclude_none=True),
+        )
+
     output: str | None = None
     try:
         result = await child_handle.execute(body.instruction)
         output = str(result) if result is not None else None
+    except asyncio.CancelledError:
+        logger.warning("Resume execution cancelled for child %s", child_id)
+        raise
     except Exception:
         logger.exception("Resume execution failed for child %s", child_id)
 

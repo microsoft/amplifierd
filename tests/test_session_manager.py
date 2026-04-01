@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,7 +39,7 @@ class TestSessionManager:
         mock_session.session_id = "test-123"
         mock_session.parent_id = None
 
-        handle = manager.register(
+        handle = await manager.register(
             session=mock_session,
             prepared_bundle=None,
             bundle_name="test-bundle",
@@ -52,7 +53,7 @@ class TestSessionManager:
         mock_session.parent_id = None
         mock_session.cleanup = AsyncMock()
 
-        manager.register(
+        await manager.register(
             session=mock_session,
             prepared_bundle=None,
             bundle_name="test-bundle",
@@ -66,7 +67,7 @@ class TestSessionManager:
             mock = MagicMock()
             mock.session_id = f"session-{i}"
             mock.parent_id = None
-            manager.register(session=mock, prepared_bundle=None, bundle_name="b")
+            await manager.register(session=mock, prepared_bundle=None, bundle_name="b")
 
         sessions = manager.list_sessions()
         assert len(sessions) == 3
@@ -245,3 +246,42 @@ class TestSessionManagerPreparedBundleCache:
         """create() with no bundle_name or bundle_uri raises ValueError."""
         with pytest.raises(ValueError, match="bundle_name or bundle_uri required"):
             await manager_with_registry.create()
+
+
+class TestShutdownCancelledError:
+    """Regression tests: shutdown() must clean up ALL sessions even if CancelledError fires."""
+
+    async def test_shutdown_continues_after_cancelled_error(self) -> None:
+        """shutdown() must destroy remaining sessions even if one raises CancelledError.
+
+        Regression test: asyncio.CancelledError is BaseException (Python 3.9+)
+        and bypasses ``except Exception:``. Without explicit handling, the first
+        CancelledError aborts the loop, leaving remaining sessions un-destroyed.
+        """
+        bus = EventBus()
+        settings = DaemonSettings()
+        manager = SessionManager(event_bus=bus, settings=settings)
+
+        # Register 3 sessions; the 2nd one's cleanup will raise CancelledError
+        sessions = []
+        for i in range(3):
+            mock = MagicMock()
+            mock.session_id = f"shutdown-{i}"
+            mock.parent_id = None
+            mock.cleanup = AsyncMock()
+            sessions.append(mock)
+            await manager.register(session=mock, prepared_bundle=None, bundle_name="b")
+
+        # Make session 1's cleanup raise CancelledError
+        sessions[1].cleanup = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await manager.shutdown()
+
+        # All 3 sessions must have been attempted (session 0 and 2 cleaned up)
+        sessions[0].cleanup.assert_awaited_once()
+        sessions[1].cleanup.assert_awaited_once()
+        sessions[2].cleanup.assert_awaited_once()
+
+        # All sessions removed from manager
+        assert manager.list_sessions() == []

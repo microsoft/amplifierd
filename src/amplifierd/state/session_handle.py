@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -48,6 +49,7 @@ class SessionHandle:
         self._last_activity: datetime = now
         self._correlation_id: str | None = None
         self._approval_cache: dict[str, Any] = {}
+        self._execute_lock = asyncio.Lock()
 
         self._wire_events()
         self._wire_display()
@@ -190,6 +192,17 @@ class SessionHandle:
     # Mutators
     # ------------------------------------------------------------------
 
+    @property
+    def is_busy(self) -> bool:
+        """True when the session is executing or about to execute.
+
+        Checks both the status flag (observable state) AND the lock
+        (actual concurrency guard).  This closes the TOCTOU window
+        between the route-level guard and the background task acquiring
+        the lock.
+        """
+        return self._status == SessionStatus.EXECUTING or self._execute_lock.locked()
+
     def mark_stale(self) -> None:
         """Mark this session as stale."""
         self._stale = True
@@ -200,21 +213,31 @@ class SessionHandle:
         self._event_bus.register_child(self.session_id, child_session_id)
 
     async def execute(self, prompt: str) -> Any:
-        """Serialize execution: only one prompt at a time."""
-        if self._status == SessionStatus.EXECUTING:
+        """Serialize execution: only one prompt at a time.
+
+        Uses an asyncio.Lock to prevent TOCTOU races.  The status flag
+        is kept for observability (other code reads it) but the lock
+        provides the actual serialisation guarantee.
+        """
+        if self._execute_lock.locked():
             raise RuntimeError("Session is already executing")
-        self._turn_count += 1
-        self._correlation_id = f"prompt_{self.session_id}_{self._turn_count}"
-        self._status = SessionStatus.EXECUTING
-        try:
-            result = await self._session.execute(prompt)
-            self._status = SessionStatus.IDLE
-            return result
-        except Exception:
-            self._status = SessionStatus.FAILED
-            raise
-        finally:
-            self._last_activity = datetime.now(UTC)
+        async with self._execute_lock:
+            self._turn_count += 1
+            self._correlation_id = f"prompt_{self.session_id}_{self._turn_count}"
+            self._status = SessionStatus.EXECUTING
+            try:
+                result = await self._session.execute(prompt)
+                self._status = SessionStatus.IDLE
+                return result
+            except Exception:
+                self._status = SessionStatus.FAILED
+                raise
+            finally:
+                # Catch-all: asyncio.CancelledError is BaseException (Python 3.9+);
+                # it bypasses except Exception and leaves _status stuck at EXECUTING.
+                if self._status == SessionStatus.EXECUTING:
+                    self._status = SessionStatus.FAILED
+                self._last_activity = datetime.now(UTC)
 
     async def cancel(self, immediate: bool = False) -> None:
         """Request cancellation of the current execution."""
@@ -226,4 +249,7 @@ class SessionHandle:
             await self._session.cleanup()
         except Exception:
             logger.warning("Error during session cleanup for %s", self.session_id, exc_info=True)
-        self._status = SessionStatus.COMPLETED
+        finally:
+            # Always transition to COMPLETED, even if CancelledError (BaseException)
+            # bypasses except Exception during cleanup.
+            self._status = SessionStatus.COMPLETED

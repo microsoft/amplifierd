@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+import threading
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dc_fields
 from pathlib import Path
@@ -28,6 +30,7 @@ class SessionIndex:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._entries: dict[str, SessionIndexEntry] = {}
+        self._save_lock = threading.Lock()
 
     def add(self, entry: SessionIndexEntry) -> None:
         self._entries[entry.session_id] = entry
@@ -52,11 +55,29 @@ class SessionIndex:
         return list(self._entries.values())
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".json.tmp")
-        data = [asdict(e) for e in self._entries.values()]
-        tmp.write_text(json.dumps(data, indent=2))
-        os.rename(tmp, self._path)
+        with self._save_lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            # Snapshot entries to avoid "dictionary changed size during iteration"
+            # when add() is called concurrently from the event loop.
+            entries_snapshot = list(self._entries.values())
+            data = [asdict(e) for e in entries_snapshot]
+            # Use a unique temp file to prevent races between concurrent save() callers
+            # (the lock serializes within one process, but unique names are safer).
+            fd, tmp_name = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp", prefix=".index-")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(tmp_name, str(self._path))
+            except BaseException:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
 
     @classmethod
     def load(cls, path: Path) -> SessionIndex:
@@ -100,9 +121,7 @@ class SessionIndex:
                             status=meta.get("status", "completed"),
                             bundle=meta.get("bundle", "unknown"),
                             created_at=meta.get("created_at", ""),
-                            last_activity=meta.get(
-                                "last_activity", meta.get("created_at", "")
-                            ),
+                            last_activity=meta.get("last_activity", meta.get("created_at", "")),
                             parent_session_id=meta.get("parent_session_id"),
                             project_id=project_dir.name,
                         )
