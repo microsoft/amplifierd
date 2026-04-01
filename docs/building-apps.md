@@ -233,6 +233,40 @@ uv tool install amplifier-chat \
 
 ---
 
+## Hosting considerations for app authors
+
+amplifierd handles the hosting layer so you don't have to. These are the three areas where app authors most commonly try to reinvent what's already built.
+
+### Don't implement your own auth
+
+When a request arrives through a reverse proxy with `AMPLIFIERD_TRUST_PROXY_AUTH=true` enabled, amplifierd reads the `X-Authenticated-User` header and makes the value available on `request.state.authenticated_user`. In localhost mode (no proxy), `request.state.authenticated_user` is `None`.
+
+Your routes should read this value rather than implement their own authentication:
+
+```python
+from fastapi import Request
+
+@router.get("/profile")
+async def profile(request: Request):
+    user = request.state.authenticated_user  # str | None
+    if user is None:
+        # localhost mode — no auth enforced
+        return {"user": "anonymous"}
+    return {"user": user}
+```
+
+Never add a separate login flow, token check, or session cookie system in your app. The host handles that. Your code just reads the value that's already there.
+
+### Smart defaults from `--host 0.0.0.0`
+
+When the server is started with `--host 0.0.0.0` (network-exposed mode), amplifierd automatically enables TLS when available (via Tailscale or user-supplied certs) and activates auth enforcement when `AMPLIFIERD_TRUST_PROXY_AUTH` is set. You do not need to toggle any of this from your app. The right behaviour is wired to the host binding — your plugin code stays the same regardless of how the server is started.
+
+### Port auto-increment
+
+amplifierd defaults to port `8410` and automatically increments to find an available port if that one is in use. Your CLI should use `find_available_port` from `amplifierd.port_utils` rather than hardcoding a port or writing your own availability check — the CLI example above shows the correct pattern.
+
+---
+
 ## Checklist
 
 - [ ] `amplifierd` is in `[standalone]` optional deps, not base deps
@@ -242,3 +276,5 @@ uv tool install amplifier-chat \
 - [ ] CLI uses `find_available_port` from `amplifierd.port_utils` when no `--port` is passed
 - [ ] README shows `uv tool install my-app --from "...[standalone]"` as the primary install path
 - [ ] README documents how to change the port if needed
+- [ ] App reads `request.state.authenticated_user` instead of implementing its own auth
+- [ ] App works correctly in both localhost (no auth) and behind-proxy (proxy auth) modes

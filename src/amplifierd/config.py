@@ -85,6 +85,15 @@ class DaemonSettings(BaseSettings):
     tls_keyfile: str | None = None
     auth_enabled: bool = False
 
+    # Proxy trust — which IPs to trust for X-Forwarded-For headers.
+    # Defaults to localhost so same-machine proxies work without explicit config.
+    trusted_proxies: list[str] = Field(default_factory=lambda: ["127.0.0.1", "::1"])
+    trust_proxy_auth: bool = False  # Read X-Authenticated-User from trusted proxies
+
+    # Cookie attributes — auto-detect from TLS mode by default
+    cookie_secure: str = "auto"  # "auto" | "true" | "false"
+    cookie_samesite: str = "lax"  # "lax" | "strict" | "none"
+
     # Class-level storage for settings_dir (used by settings_customise_sources).
     # Not thread-safe: concurrent construction would race on this value.
     # Acceptable — this runs once at daemon startup, not on a hot path.

@@ -78,6 +78,7 @@ class TestServeDefaults:
         with (
             patch("uvicorn.run") as mock_run,
             patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
+            patch("amplifierd.port_utils.find_available_port", return_value=(8410, False)),
             patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
             patch("amplifierd.daemon_session.setup_session_log"),
             patch("amplifierd.security.tls.resolve_tls", return_value={}),
@@ -136,6 +137,7 @@ class TestServeCLIOverrides:
         with (
             patch("uvicorn.run") as mock_run,
             patch("amplifierd.config.DaemonSettings", return_value=mock_settings),
+            patch("amplifierd.port_utils.find_available_port", return_value=(8410, False)),
             patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
             patch("amplifierd.daemon_session.setup_session_log"),
             patch("amplifierd.security.tls.resolve_tls", return_value={}),

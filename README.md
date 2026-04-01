@@ -53,6 +53,18 @@ Settings resolve in priority order: CLI flags > environment variables > `~/.ampl
 | `log_level` | `AMPLIFIERD_LOG_LEVEL` | `info` | Logging level |
 | `default_working_dir` | `AMPLIFIERD_DEFAULT_WORKING_DIR` | `None` | Default CWD for new sessions |
 | `disabled_plugins` | `AMPLIFIERD_DISABLED_PLUGINS` | `[]` | Plugin names to skip |
+| `tls_mode` | `AMPLIFIERD_TLS_MODE` | `off` | TLS mode: `off`, `auto` (Tailscale), or `manual` (supply cert/key) |
+| `tls_certfile` | `AMPLIFIERD_TLS_CERTFILE` | `None` | Path to TLS certificate file (implies `--tls manual`) |
+| `tls_keyfile` | `AMPLIFIERD_TLS_KEYFILE` | `None` | Path to TLS private key file (implies `--tls manual`) |
+| `auth_enabled` | `AMPLIFIERD_AUTH_ENABLED` | `false` | Require authentication on all endpoints |
+| `trust_proxy_auth` | `AMPLIFIERD_TRUST_PROXY_AUTH` | `false` | Trust `X-Authenticated-User` header from upstream proxy |
+| `trusted_proxies` | `AMPLIFIERD_TRUSTED_PROXIES` | `["127.0.0.1","::1"]` | IP addresses allowed to set forwarded headers |
+| `cookie_secure` | `AMPLIFIERD_COOKIE_SECURE` | `auto` | Set `Secure` on cookies: `auto`, `true`, or `false` |
+| `cookie_samesite` | `AMPLIFIERD_COOKIE_SAMESITE` | `lax` | `SameSite` cookie attribute: `lax`, `strict`, or `none` |
+| `api_key` | `AMPLIFIERD_API_KEY` | `None` | Static API key required in `Authorization: Bearer` header |
+| `allowed_origins` | `AMPLIFIERD_ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins list |
+
+For deployment modes (localhost, network-exposed, behind proxy) and detailed security configuration, see [docs/HOSTING.md](docs/HOSTING.md).
 
 CLI flags override everything:
 

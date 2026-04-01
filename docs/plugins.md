@@ -139,6 +139,8 @@ def create_router(state) -> APIRouter:
     return router
 ```
 
+> **Hosting and authentication:** When amplifierd is deployed with API key auth or behind a proxy, your plugin routes are automatically protected by the auth middleware. For guidance on reading the authenticated user identity and handling proxy deployments, see the [Hosting Considerations](building-apps.md#hosting-considerations-for-app-authors) section in the building apps guide.
+
 ## Disabling plugins
 
 In `~/.amplifierd/settings.json`:

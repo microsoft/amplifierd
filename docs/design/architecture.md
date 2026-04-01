@@ -14,14 +14,17 @@ The Amplifier ecosystem has two library layers — `amplifier-core` (session lif
 |---|---|
 | Framework | FastAPI + uvicorn |
 | Package management | uv with pyproject.toml |
-| Authentication | None. Localhost daemon, single-user. |
-| Default bind | `127.0.0.1:8410` |
+| Authentication | Layered. Localhost: none (trusted). Network (`--host 0.0.0.0`): API key (`AMPLIFIERD_API_KEY`). Behind proxy: `X-Authenticated-User` header trust (`AMPLIFIERD_TRUST_PROXY_AUTH`). PAM session cookies available via auth plugin for browser-based access. |
+| Default bind | `127.0.0.1:8410`. Port auto-increments if occupied. |
 | Dependencies | `amplifier-core` and `amplifier-foundation` as pip/uv dependencies |
 | Persistence | Filesystem (`transcript.jsonl` + `metadata.json` + `events.jsonl`) |
 | Session model | Approach A — SessionManager with per-session queue (stateful in-memory) |
 | Event delivery | Global EventBus with automatic session-tree propagation |
 | Bundle reload | Stale flag pattern (mark stale, reload on next execute) |
 | Multi-tenancy | None. Single-user. |
+| TLS | Off by default (localhost). Auto mode: Tailscale cert → self-signed fallback. Manual mode: user-provided certs. |
+| Cookie policy | secure=auto (matches TLS mode), samesite=lax (allows Slack/email link navigation). Configurable via env vars. |
+| Proxy trust | AMPLIFIERD_TRUSTED_PROXIES gates X-Forwarded-For header trust. Defaults to localhost. CORS uses dynamic origin allow-list (not wildcard). |
 | Contribution system | Not exposed (zero production callers; kept internal) |
 | gRPC | Not now. HTTP + SSE + WebSocket only. |
 | Hot-reload (dev) | uvicorn `--reload` flag passthrough |
