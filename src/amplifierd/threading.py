@@ -17,6 +17,24 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Tools whose execute() does blocking synchronous I/O.
+# Session-spawning tools (delegate, task, recipes) and other async-safe tools
+# (bash, web_search, todo, mode) are deliberately NOT listed — they must run
+# on the caller's event loop to avoid cross-loop crashes with PyO3 Rust types.
+_NEEDS_THREADING = frozenset(
+    {
+        "grep",
+        "glob",
+        "python_check",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "apply_patch",
+        "load_skill",
+        "web_fetch",
+    }
+)
+
 
 class ThreadedToolWrapper:
     """Transparent proxy that runs ``tool.execute()`` off the event loop."""
@@ -49,7 +67,12 @@ class ThreadedToolWrapper:
 
 
 def wrap_tools_for_threading(session: Any) -> None:
-    """Replace tools in *session*'s coordinator with :class:`ThreadedToolWrapper` instances.
+    """Wrap known-blocking tools with :class:`ThreadedToolWrapper`.
+
+    Only tools whose names appear in ``_NEEDS_THREADING`` are wrapped.
+    Tools that spawn child sessions (delegate, task, recipes) or are already
+    async-safe (bash, web_search, todo, mode) run directly on the caller's
+    event loop.
 
     Safe to call even when the session has no coordinator or no tools, and
     when the coordinator does not expose a ``.get()`` method (e.g. it is a
@@ -81,11 +104,34 @@ def wrap_tools_for_threading(session: Any) -> None:
         return
 
     if isinstance(tools, dict):
-        # Mutate the dict in-place so callers holding a reference see the update.
+        wrapped_count = 0
         for key in list(tools):
-            tools[key] = ThreadedToolWrapper(tools[key])
-        log.debug("wrap_tools_for_threading: wrapped %d tool(s)", len(tools))
+            tool = tools[key]
+            if isinstance(tool, ThreadedToolWrapper):
+                continue  # idempotency guard — prevents double-wrapping
+            tool_name = getattr(tool, "name", key)
+            if tool_name in _NEEDS_THREADING:
+                tools[key] = ThreadedToolWrapper(tool)
+                wrapped_count += 1
+        log.debug(
+            "wrap_tools_for_threading: wrapped %d of %d tool(s)",
+            wrapped_count,
+            len(tools),
+        )
     else:
-        wrapped = [ThreadedToolWrapper(tool) for tool in tools]
+        wrapped = []
+        wrapped_count = 0
+        for tool in tools:
+            if isinstance(tool, ThreadedToolWrapper):
+                wrapped.append(tool)
+            elif getattr(tool, "name", "") in _NEEDS_THREADING:
+                wrapped.append(ThreadedToolWrapper(tool))
+                wrapped_count += 1
+            else:
+                wrapped.append(tool)
         coordinator["tools"] = wrapped
-        log.debug("wrap_tools_for_threading: wrapped %d tool(s)", len(wrapped))
+        log.debug(
+            "wrap_tools_for_threading: wrapped %d of %d tool(s)",
+            wrapped_count,
+            len(wrapped),
+        )

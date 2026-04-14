@@ -41,6 +41,7 @@ dev = [
     "pytest-cov>=6.1.1",
     "pyright>=1.1.407",
     "ruff>=0.11.10",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.pyright]
@@ -68,5 +69,11 @@ select = ["E", "F", "I", "UP"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=6.1.1",
     "pytest-timeout>=2.4.0",
+    "pyright>=1.1.407",
+    "ruff>=0.11.10",
 ]

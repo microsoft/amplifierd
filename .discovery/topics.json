@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Session State and Event Bus",
+    "slug": "session-state-and-event-bus",
+    "description": "The state/ module manages live session lifecycle, routes agent events through an in-process EventBus, and bridges amplifier-core events to the SSE transport \u2014 making it the core runtime hub of the daemon."
+  },
+  {
+    "name": "HTTP Routes and SSE Streaming",
+    "slug": "http-routes-and-sse",
+    "description": "The routes/ module defines all REST endpoints (sessions, agents, approvals, bundles, events) and the SSE streaming transport that clients consume for real-time agent output."
+  },
+  {
+    "name": "Security and Auth Middleware",
+    "slug": "security-and-auth",
+    "description": "The security/ module implements TLS configuration, CORS origin validation, authentication middleware (API keys and proxy trust), and Tailscale integration \u2014 cross-cutting every HTTP request."
+  },
+  {
+    "name": "App Startup and Configuration",
+    "slug": "app-startup-and-config",
+    "description": "The cli.py, app.py, and config.py files form the daemon's startup path \u2014 resolving settings from CLI flags, environment variables, and JSON files, then assembling and wiring the FastAPI application with all routes, middleware, and plugins."
+  }
+]

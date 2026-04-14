@@ -1,0 +1,335 @@
+digraph dot_graph_code_paths {
+    graph [
+        label="dot-graph Tool — Code Execution Paths\n(code-tracer agent)"
+        labelloc=t
+        fontname="Helvetica"
+        fontsize=16
+        rankdir=TB
+        splines=ortho
+        compound=true
+        newrank=true
+        nodesep=0.5
+        ranksep=0.7
+        bgcolor="#fafafa"
+    ]
+    node [fontname="Helvetica" fontsize=11 style="filled,rounded" shape=box]
+    edge [fontname="Helvetica" fontsize=10 color="#444444"]
+
+    // ================================================================
+    // BUNDLE & PACKAGING CLUSTER
+    // ================================================================
+    subgraph cluster_bundle {
+        label="Bundle & Package  (~/.amplifier/cache/amplifier-bundle-dot-graph-*/)"
+        style=filled
+        bgcolor="#e0e8f0"
+        fontname="Helvetica"
+        fontsize=13
+
+        BundleMd [label="bundle.md\nname: dot-graph\nversion: 0.2.0" fillcolor="#b3cde3"]
+        Pyproject [label="modules/tool-dot-graph/pyproject.toml\nname: amplifier-module-tool-dot-graph\nv0.1.0\ndeps: pydot>=3.0, networkx>=3.0" fillcolor="#b3cde3"]
+        EntryPoint [label="[project.entry-points.\"amplifier.modules\"]\ntool-dot-graph =\n  amplifier_module_tool_dot_graph:mount" fillcolor="#b3cde3"]
+        BundleAgents [label="agents/\n13 agent .md files\n(discovery-orchestrator,\ncode-tracer, …)" fillcolor="#ccebc5"]
+        BundleSkills [label="skills/\ndot-syntax, dot-quality,\ndot-patterns,\ndot-graph-intelligence, …" fillcolor="#ccebc5"]
+
+        BundleMd -> Pyproject [style=dashed label="declares module"]
+        Pyproject -> EntryPoint [label="registers"]
+    }
+
+    // ================================================================
+    // MODULE LOADING CLUSTER
+    // ================================================================
+    subgraph cluster_loading {
+        label="Module Loading  (amplifier_core/loader.py)"
+        style=filled
+        bgcolor="#fff2cc"
+        fontname="Helvetica"
+        fontsize=13
+
+        LoaderDiscover [label="loader.py:103\n_discover_entry_points()\ngroup='amplifier.modules'" fillcolor="#ffe999"]
+        NameGuess [label="loader.py:114\n_guess_from_naming(ep.name)\n'tool-dot-graph' →\ntype='tool', mount_point='tools'" fillcolor="#ffe999"]
+        LoaderLoad [label="loader.py:176\nload(module_id, config,\nsource_hint, coordinator)" fillcolor="#ffe999"]
+        SourceResolver [label="loader.py:218-247\ncoordinator.get(\n  'module-source-resolver')\n→ async_resolve()" fillcolor="#ffe999"]
+        DirectFallback [label="loader.py:230\n_load_direct(module_id)\nentry-point only\n(no resolver mounted)" fillcolor="#ffe999"]
+        MountClosure [label="loader.py\nmount_with_config(coordinator)\n↳ mount(coordinator, config)" fillcolor="#ffe999"]
+
+        LoaderDiscover -> NameGuess
+        LoaderLoad -> SourceResolver [label="if resolver\nmounted"]
+        LoaderLoad -> DirectFallback [label="fallback"]
+        DirectFallback -> MountClosure [label="returns closure"]
+        SourceResolver -> MountClosure [label="returns closure"]
+    }
+
+    // ================================================================
+    // MOUNT / TOOL REGISTRATION CLUSTER
+    // ================================================================
+    subgraph cluster_mount {
+        label="Mount & Registration  (__init__.py)"
+        style=filled
+        bgcolor="#fce4ec"
+        fontname="Helvetica"
+        fontsize=13
+
+        MountFn [label="__init__.py:286\nasync mount(coordinator, config)\ncreates DotGraphTool()\ncalls coordinator.mount(\n  'tools', tool, name='dot_graph')" fillcolor="#f48fb1"]
+        DotGraphTool [label="__init__.py:40\nDotGraphTool\nname='dot_graph'\ndescription: 6-op schema\ninput_schema: JSON Schema" fillcolor="#f48fb1"]
+        ToolRegistered [label="coordinator['tools']['dot_graph']\n→ DotGraphTool instance" fillcolor="#f48fb1"]
+        MountReturn [label="__init__.py:309-312\nreturns:\n{name: 'tool-dot-graph',\n version: '0.4.0',\n provides: ['dot_graph']}" fillcolor="#f48fb1"]
+
+        MountFn -> DotGraphTool [label="creates"]
+        MountFn -> ToolRegistered [label="registers via\ncoordinator.mount()"]
+        MountFn -> MountReturn [label="returns metadata"]
+    }
+
+    // ================================================================
+    // THREADING CLUSTER
+    // ================================================================
+    subgraph cluster_threading {
+        label="amplifierd Tool Threading  (threading.py)"
+        style=filled
+        bgcolor="#f9fbe7"
+        fontname="Helvetica"
+        fontsize=13
+
+        WrapTools [label="threading.py:51\nwrap_tools_for_threading(session)\nCalled after create_session()\nand after child_session.initialize()" fillcolor="#e6ee9c"]
+        ThreadedWrapper [label="threading.py:21\nThreadedToolWrapper\ntransparent proxy\n__getattr__ delegation" fillcolor="#e6ee9c"]
+        ToolExecute [label="threading.py:29\nexecute(input_data)\ncoro = tool.execute(input_data)\nawait asyncio.to_thread(\n  asyncio.run, coro)\n← isolated event loop per call" fillcolor="#e6ee9c"]
+
+        WrapTools -> ThreadedWrapper [label="wraps DotGraphTool"]
+        ThreadedWrapper -> ToolExecute
+    }
+
+    // ================================================================
+    // EXECUTE DISPATCHER CLUSTER
+    // ================================================================
+    subgraph cluster_dispatch {
+        label="DotGraphTool.execute()  (__init__.py:195)"
+        style=filled
+        bgcolor="#e8f5e9"
+        fontname="Helvetica"
+        fontsize=13
+
+        Dispatcher [label="__init__.py:204-283\ndispatch by operation:\nvalidate / render / setup\nanalyze / prescan / assemble\n→ ToolResult(success, json_str)" fillcolor="#a8ddb5"]
+        UnknownOp [label="__init__.py:272\nunknown operation\n→ {error: …, supported: […]}\nToolResult(success=False)" fillcolor="#a8ddb5"]
+
+        Dispatcher -> UnknownOp [label="else"]
+    }
+
+    // ================================================================
+    // VALIDATE CLUSTER
+    // ================================================================
+    subgraph cluster_validate {
+        label="validate.py"
+        style=filled
+        bgcolor="#e3f2fd"
+        fontname="Helvetica"
+        fontsize=13
+
+        ValidateDot [label="validate.py:37\nvalidate_dot(dot_content, layers)\ndefault layers: syntax,structural,render" fillcolor="#90caf9"]
+        SyntaxLayer [label="validate.py:102\n_check_syntax()\npydot.graph_from_dot_data()\nstdout redirected (io.StringIO)\ncaptures pydot parse errors" fillcolor="#90caf9"]
+        StructLayer [label="validate.py:135\n_check_structural(graph)\n• empty graph (error)\n• unreachable nodes (warn)\n• isolated nodes (warn)\n• orphan clusters (warn)\n• missing legend ≥10 nodes (info)\n_ENTRY_HINTS + _PSEUDO_NODES filter" fillcolor="#90caf9"]
+        RenderLayer [label="validate.py:233\n_check_render_quality()\ncheck_environment() first\nsubprocess.run(['dot','-Tcanon',tmp])\ntimeout=30s\ntempfile cleanup in finally" fillcolor="#90caf9"]
+        ValidateReturn [label="{valid: bool,\nissues: [{layer,severity,message}],\nstats: {nodes,edges,clusters,lines}}" fillcolor="#90caf9"]
+
+        ValidateDot -> SyntaxLayer
+        ValidateDot -> StructLayer [label="if graph != None"]
+        ValidateDot -> RenderLayer
+        SyntaxLayer -> StructLayer [label="graph or None"]
+        ValidateDot -> ValidateReturn
+    }
+
+    // ================================================================
+    // RENDER CLUSTER
+    // ================================================================
+    subgraph cluster_render {
+        label="render.py"
+        style=filled
+        bgcolor="#fce4ec"
+        fontname="Helvetica"
+        fontsize=13
+
+        RenderDot [label="render.py:25\nrender_dot(dot_content,\nformat, engine, output_path)" fillcolor="#f8bbd0"]
+        RenderEnvCheck [label="render.py:63\nsetup_helper.check_environment()\nshutil.which('dot')\ncheck engine in available list" fillcolor="#f8bbd0"]
+        TempfileNote [label="render.py:89\ntempfile.mktemp() ← intentional\ngraphviz refuses to overwrite\nexisting files (TOCTOU accepted)" fillcolor="#f8bbd0"]
+        RenderSubprocess [label="render.py:105\nsubprocess.run(\n  [engine, f'-T{fmt}',\n   tmp_dot_path, '-o', out]\n  timeout=30s)" fillcolor="#f8bbd0"]
+        RenderCleanup [label="render.py:144-149\nfinally:\n  unlink tmp_dot\n  if auto+failed: unlink output" fillcolor="#f8bbd0"]
+        RenderReturn [label="{success: true,\noutput_path, format,\nengine, size_bytes}" fillcolor="#f8bbd0"]
+
+        RenderDot -> RenderEnvCheck
+        RenderEnvCheck -> TempfileNote [label="if graphviz found"]
+        TempfileNote -> RenderSubprocess
+        RenderSubprocess -> RenderCleanup
+        RenderDot -> RenderReturn [label="on success"]
+    }
+
+    // ================================================================
+    // SETUP CLUSTER
+    // ================================================================
+    subgraph cluster_setup {
+        label="setup_helper.py"
+        style=filled
+        bgcolor="#f3e5f5"
+        fontname="Helvetica"
+        fontsize=13
+
+        CheckEnv [label="setup_helper.py:12\ncheck_environment()\n{graphviz, pydot, networkx}" fillcolor="#ce93d8"]
+        CheckGV [label="setup_helper.py:26\n_check_graphviz()\nshutil.which('dot')\nsubprocess.run(['dot','-V'])\n← version in STDERR\nscan engine names with which()" fillcolor="#ce93d8"]
+        CheckPydot [label="setup_helper.py:70\n_check_pydot()\ntry: import pydot" fillcolor="#ce93d8"]
+        CheckNX [label="setup_helper.py:85\n_check_networkx()\ntry: import networkx" fillcolor="#ce93d8"]
+        InstallHint [label="setup_helper.py:100\n_install_hint()\nplatform.system() →\nDarwin/Linux/Windows hints" fillcolor="#ce93d8"]
+
+        CheckEnv -> CheckGV
+        CheckEnv -> CheckPydot
+        CheckEnv -> CheckNX
+        CheckGV -> InstallHint [label="if not found"]
+    }
+
+    // ================================================================
+    // ANALYZE CLUSTER
+    // ================================================================
+    subgraph cluster_analyze {
+        label="analyze.py"
+        style=filled
+        bgcolor="#fff8e1"
+        fontname="Helvetica"
+        fontsize=13
+
+        AnalyzeDot [label="analyze.py:57\nanalyze_dot(dot_content, options)\nvalidate options['analysis']" fillcolor="#ffe082"]
+        PreNetworkX [label="analyze.py:81-84\npre-NetworkX routing:\ndiff → _diff()\nsubgraph_extract →\n_dispatch_subgraph_extract()" fillcolor="#ffe082"]
+        ParsePydot [label="analyze.py:117\n_parse_dot(dot_content)\npydot.graph_from_dot_data()\nstdout redirect (parse errors)" fillcolor="#ffe082"]
+        ToNetworkX [label="analyze.py:172\n_pydot_to_networkx(graph)\nrecursive cluster walk\n← CRITICAL: assembled DOTs\n  hide nodes in clusters\nMultiDiGraph or MultiGraph\n_PSEUDO_NODES filtered ×3" fillcolor="#ffe082"]
+        StatsOp [label="analyze.py:248\n_stats(G)\nnx.density / is_dag\nwcc / self_loops" fillcolor="#ffe082"]
+        ReachOp [label="analyze.py:308\n_reachability(G, options)\nnx.descendants(G, source)" fillcolor="#ffe082"]
+        UnreachOp [label="analyze.py:350\n_unreachable(G)\nin_degree==0\n_ENTRY_HINTS exempt\n→ annotated DOT (nodes red)" fillcolor="#ffe082"]
+        CyclesOp [label="analyze.py:393\n_cycles(G)\nnx.simple_cycles(G)\n→ annotated DOT (edges red)" fillcolor="#ffe082"]
+        PathsOp [label="analyze.py:453\n_paths(G, options)\nnx.all_simple_paths()\ncapped at _PATH_CAP=100\npeek to detect truncation" fillcolor="#ffe082"]
+        CriticalOp [label="analyze.py:516\n_critical_path(G)\nnx.dag_longest_path()\nfails if not DAG" fillcolor="#ffe082"]
+        DiffOp [label="analyze.py:724\n_diff(dot_content_a, options)\nparsed independently\nnodes_a, nodes_b sets\nedges ignore MultiDiGraph keys" fillcolor="#ffe082"]
+        SubgraphExtOp [label="analyze.py:640\n_subgraph_extract(pydot_graph)\npydot only (preserves cluster\nstructure/attrs/labels)\n→ standalone pydot.Dot\nnode/edge count via NetworkX" fillcolor="#ffe082"]
+
+        AnalyzeDot -> PreNetworkX [label="diff/subgraph_extract"]
+        AnalyzeDot -> ParsePydot [label="others"]
+        ParsePydot -> ToNetworkX
+        ToNetworkX -> StatsOp
+        ToNetworkX -> ReachOp
+        ToNetworkX -> UnreachOp
+        ToNetworkX -> CyclesOp
+        ToNetworkX -> PathsOp
+        ToNetworkX -> CriticalOp
+        PreNetworkX -> DiffOp
+        PreNetworkX -> SubgraphExtOp
+    }
+
+    // ================================================================
+    // PRESCAN CLUSTER
+    // ================================================================
+    subgraph cluster_prescan {
+        label="prescan.py  (pure Python)"
+        style=filled
+        bgcolor="#e8f5e9"
+        fontname="Helvetica"
+        fontsize=13
+
+        PrescanRepo [label="prescan.py:93\nprescan_repo(repo_path)\nPath validation first" fillcolor="#a5d6a7"]
+        CollectFiles [label="prescan.py:178\n_collect_all_files()\nos.walk() + _SKIP_DIRS\npruned in-place" fillcolor="#a5d6a7"]
+        DetectLangs [label="prescan.py:127-131\nlanguages: ext → count\nfrom all file extensions" fillcolor="#a5d6a7"]
+        DetectModules [label="prescan.py:199\n_detect_modules()\n_MODULE_INDICATORS priority:\nCargo.toml → rust_crate\ngo.mod → go_module\npackage.json → node_package\n__init__.py → python_package\nroot excluded; nested modules\nown their files" fillcolor="#a5d6a7"]
+        DetectManifests [label="prescan.py:303\n_detect_build_manifests()\nrepo root only\n_BUILD_MANIFESTS set" fillcolor="#a5d6a7"]
+        DetectEntryPoints [label="prescan.py:321\n_detect_entry_points()\n_ENTRY_POINTS set\nmain.py, cli.py, app.py,\n__main__.py, …" fillcolor="#a5d6a7"]
+        BuildTree [label="prescan.py:340\n_build_directory_tree()\n_MAX_TREE_DEPTH=4\nSkipDirs excluded\nPermissionError → {}" fillcolor="#a5d6a7"]
+
+        PrescanRepo -> CollectFiles
+        CollectFiles -> DetectLangs
+        CollectFiles -> DetectModules
+        PrescanRepo -> DetectManifests
+        CollectFiles -> DetectEntryPoints
+        PrescanRepo -> BuildTree
+    }
+
+    // ================================================================
+    // ASSEMBLE CLUSTER
+    // ================================================================
+    subgraph cluster_assemble {
+        label="assemble.py"
+        style=filled
+        bgcolor="#fce4ec"
+        fontname="Helvetica"
+        fontsize=13
+
+        AssembleHier [label="assemble.py:27\nassemble_hierarchy(\nmanifest, output_dir,\nrender_png=False)\nvalidate: requires modules+subsystems" fillcolor="#f8bbd0"]
+        AssembleGlob [label="assemble.py:93-97\nglob('subsystems/*.dot')\nonly if subsystems/ exists\n← agents write DOTs there\nper-module DOTs NOT copied" fillcolor="#f8bbd0"]
+        AssembleOverview [label="assemble.py:100-103\ncheck output_dir/overview.dot\nNone if not found" fillcolor="#f8bbd0"]
+        AssembleManifest [label="assemble.py:106-111\nwrite manifest.json\n{modules_def, subsystems_def,\noverview_path}" fillcolor="#f8bbd0"]
+        AssemblePNG [label="assemble.py:114-130\nif render_png=True:\nfor each .dot → render_dot()\nnon-fatal warnings on failure" fillcolor="#f8bbd0"]
+        AssembleReturn [label="{success, outputs:\n  {overview, subsystems: {name: path}},\nstats: {subsystems, modules},\nwarnings: [str]}" fillcolor="#f8bbd0"]
+
+        AssembleHier -> AssembleGlob
+        AssembleHier -> AssembleOverview
+        AssembleHier -> AssembleManifest
+        AssembleHier -> AssemblePNG [label="if render_png"]
+        AssembleHier -> AssembleReturn
+    }
+
+    // ================================================================
+    // EVENT BUS / SSE CLUSTER
+    // ================================================================
+    subgraph cluster_sse {
+        label="amplifierd SSE Path  (event_bus.py · events.py)"
+        style=filled
+        bgcolor="#e3f2fd"
+        fontname="Helvetica"
+        fontsize=13
+
+        ToolResult [label="ToolResult\n(success: bool, output: json_str)" fillcolor="#90caf9"]
+        KernelHook [label="amplifier_core\nhooks.emit('tool:post', data)" fillcolor="#90caf9"]
+        WireHook [label="session_handle.py:148\n_wire_events() hook fires\nevent_bus.publish(\n  session_id, 'tool:post', data)" fillcolor="#90caf9"]
+        EventBusQ [label="event_bus.py:123\nsub.queue.put_nowait(\n  TransportEvent)" fillcolor="#90caf9"]
+        SSEGen [label="events.py:19\n_event_generator()\nformats SSE string\n'id: {seq}\\nevent: {name}\\ndata: {data}'" fillcolor="#90caf9"]
+        SSEClient [label="StreamingResponse\n→ HTTP client\ntext/event-stream" fillcolor="#90caf9"]
+
+        ToolResult -> KernelHook [label="returned from execute()"]
+        KernelHook -> WireHook
+        WireHook -> EventBusQ
+        EventBusQ -> SSEGen [label="async for event"]
+        SSEGen -> SSEClient
+    }
+
+    // ================================================================
+    // CROSS-CLUSTER EDGES
+    // ================================================================
+
+    // Package → Loader
+    EntryPoint -> LoaderDiscover [label="discovered via\nimportlib.metadata"]
+
+    // Loader → Mount
+    MountClosure -> MountFn [label="calls mount()"]
+
+    // Mount → Threading
+    ToolRegistered -> WrapTools [label="session_manager wraps\nall registered tools\nafter create_session()"]
+
+    // Threading → Dispatch
+    ToolExecute -> Dispatcher [label="calls\nDotGraphTool.execute()\nin worker thread"]
+
+    // Dispatch → Operations
+    Dispatcher -> ValidateDot [label="validate"]
+    Dispatcher -> RenderDot [label="render"]
+    Dispatcher -> CheckEnv [label="setup"]
+    Dispatcher -> AnalyzeDot [label="analyze"]
+    Dispatcher -> PrescanRepo [label="prescan"]
+    Dispatcher -> AssembleHier [label="assemble"]
+
+    // Operations → ToolResult
+    ValidateDot -> ToolResult [label="ToolResult(valid, issues, stats)"]
+    RenderDot -> ToolResult [label="ToolResult(output_path,…)"]
+    CheckEnv -> ToolResult [label="ToolResult(gv+pydot+nx)"]
+    AnalyzeDot -> ToolResult [label="ToolResult(op_result)"]
+    PrescanRepo -> ToolResult [label="ToolResult(inventory)"]
+    AssembleHier -> ToolResult [label="ToolResult(outputs,stats)"]
+
+    // Validate → setup_helper
+    RenderLayer -> CheckEnv [label="check graphviz\nbefore running dot"]
+
+    // Render → setup_helper
+    RenderEnvCheck -> CheckEnv [label="uses check_environment()"]
+
+    // Assemble → Render
+    AssemblePNG -> RenderDot [label="render_dot() for\neach discovered .dot"]
+}

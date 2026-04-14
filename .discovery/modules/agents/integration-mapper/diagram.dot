@@ -1,0 +1,248 @@
+digraph dot_graph_integration {
+    graph [
+        label="dot-graph Tool — Integration Boundaries\n(integration-mapper agent)"
+        labelloc=t
+        fontname="Helvetica"
+        fontsize=16
+        rankdir=TB
+        splines=ortho
+        compound=true
+        newrank=true
+        nodesep=0.55
+        ranksep=0.8
+        bgcolor="#f9f9f9"
+    ]
+    node [fontname="Helvetica" fontsize=11 style="filled,rounded" shape=box]
+    edge [fontname="Helvetica" fontsize=10 color="#444444"]
+
+    // ================================================================
+    // EXTERNAL SYSTEMS CLUSTER
+    // ================================================================
+    subgraph cluster_external {
+        label="External Systems"
+        style=filled
+        bgcolor="#e8e8e8"
+        fontname="Helvetica"
+        fontsize=13
+        color="#999999"
+
+        BundleCache [label="Bundle Cache\n~/.amplifier/cache/\namplifier-bundle-dot-graph-*/\n• agents/ (13 agent .md files)\n• recipes/ (discover.yaml, pipeline)\n• skills/ (dot-syntax, dot-quality, …)\n• modules/tool-dot-graph/" fillcolor="#c8c8c8" shape=cylinder]
+
+        Graphviz [label="graphviz binary\n(system dependency)\ndot / neato / fdp / sfdp\ntwopi / circo\nnot in pyproject.toml" fillcolor="#c8c8c8" shape=cylinder]
+    }
+
+    // ================================================================
+    // BOUNDARY 1: Entry Point / Loader Cluster
+    // ================================================================
+    subgraph cluster_loader {
+        label="Boundary 1: Entry Point → amplifier_core Loader  (loader.py:103-250)"
+        style=filled
+        bgcolor="#e0e8f0"
+        fontname="Helvetica"
+        fontsize=13
+
+        EntryPoint [label="pyproject.toml\n[amplifier.modules]\ntool-dot-graph =\n  amplifier_module_tool_dot_graph:mount\nv0.1.0 (pyproject) ≠ v0.4.0 (mount)\n← VERSION MISMATCH" fillcolor="#b3cde3"]
+        LoaderDiscover [label="loader.py:103\n_discover_entry_points()\nimportlib.metadata\n.entry_points(group=\n'amplifier.modules')" fillcolor="#b3cde3"]
+        NameConvention [label="loader.py:114\n_guess_from_naming()\n'tool-dot-graph'\n→ type='tool'\n→ mount_point='tools'\nstring-based protocol" fillcolor="#b3cde3"]
+        LoaderLoad [label="loader.py:176\nload(module_id, config,\nsource_hint, coordinator)\n2 paths:\n• source-resolver (normal)\n• _load_direct (fallback)" fillcolor="#b3cde3"]
+    }
+
+    // ================================================================
+    // BOUNDARY 2: Mount / coordinator Cluster
+    // ================================================================
+    subgraph cluster_mount {
+        label="Boundary 2: coordinator.mount() → Tool Registration  (__init__.py:286-312)"
+        style=filled
+        bgcolor="#fce4ec"
+        fontname="Helvetica"
+        fontsize=13
+
+        MountFn [label="__init__.py:286\nasync mount(coordinator, config)\nDotGraphTool()\ncoordinator.mount(\n  'tools', tool, name='dot_graph')\nconfig IGNORED by tool" fillcolor="#f48fb1"]
+        CoordSlot [label="coordinator['tools']['dot_graph']\n= DotGraphTool instance\nname='dot_graph'\ndescription: 6-op schema\ninput_schema: JSON Schema" fillcolor="#f48fb1"]
+        MountReturn [label="returns:\n{name: 'tool-dot-graph'\n version: '0.4.0'\n provides: ['dot_graph']}\n← APPEARS UNUSED" fillcolor="#f48fb1" style="filled,dashed,rounded"]
+    }
+
+    // ================================================================
+    // BOUNDARY 2b: Threading Isolation Cluster
+    // ================================================================
+    subgraph cluster_threading {
+        label="Boundary 2b: threading.py — ThreadedToolWrapper  (threading.py:51-91)"
+        style=filled
+        bgcolor="#f9fbe7"
+        fontname="Helvetica"
+        fontsize=13
+
+        WrapTools [label="wrap_tools_for_threading(session)\nCalled at 3 sites (all must be hit):\n• session_manager.py:275 (new session)\n• session_manager.py:427 (resume)\n• spawn.py:261 (child after initialize)\nMutates tools dict in-place\nNO idempotency guard — double-wrap crashes" fillcolor="#e6ee9c" color="#cc0000" penwidth=2]
+        ThreadWrapper [label="ThreadedToolWrapper\ntransparent proxy\n__getattr__ delegation\nONLY intercepts execute()" fillcolor="#e6ee9c"]
+        ThreadExecute [label="threading.py:29-40\nasync execute(input):\n  coro = tool.execute(input)  ← main thread\n  await asyncio.to_thread(\n    asyncio.run, coro)         ← worker thread\n← EVENT LOOP BOUNDARY" fillcolor="#e6ee9c"]
+    }
+
+    // ================================================================
+    // BOUNDARY 3: Worker Thread / Subprocess Cluster
+    // ================================================================
+    subgraph cluster_worker {
+        label="Boundary 3: Worker Thread (isolated asyncio.run) + Subprocess  — PROCESS BOUNDARY"
+        style=filled
+        bgcolor="#e8f5e9"
+        fontname="Helvetica"
+        fontsize=13
+
+        Dispatcher [label="DotGraphTool.execute()\ndispatch by operation:\nvalidate / render / setup\nanalyze / prescan / assemble\n→ ToolResult(success, json_str)" fillcolor="#a8ddb5"]
+
+        ValidateOp [label="validate.py\nLayer 1: pydot parse\n  stdout redirect ← THREAD-UNSAFE\nLayer 2: structural checks\nLayer 3: subprocess.run(\n  ['dot','-Tcanon',tmp])\n  timeout=30s" fillcolor="#a8ddb5"]
+
+        RenderOp [label="render.py\ncheck_environment() first\ntempfile.mktemp() TOCTOU\nsubprocess.run(\n  [engine,'-T{fmt}',...])\n  timeout=30s\ncleanup in finally" fillcolor="#a8ddb5"]
+
+        SetupOp [label="setup_helper.py\nshutil.which('dot')\nsubprocess.run(['dot','-V'])\n← version in STDERR\nengine scan via which()" fillcolor="#a8ddb5"]
+
+        AnalyzeOp [label="analyze.py\npydot parse\n  stdout redirect ← THREAD-UNSAFE\n_pydot_to_networkx()\n  recursive cluster walk\n  ← REQUIRED for assemble output\npydot | networkx operations" fillcolor="#a8ddb5"]
+
+        PrescanOp [label="prescan.py\npure Python: os.walk()\nno pydot, no graphviz\n_SKIP_DIRS pruning\n_MODULE_INDICATORS priority" fillcolor="#a8ddb5"]
+
+        AssembleOp [label="assemble.py\nglob('subsystems/*.dot')\ncheck overview.dot\nwrite manifest.json\nif render_png:\n  render.render_dot() ← NESTED CALL\n  ← BYPASSES coordinator" fillcolor="#a8ddb5"]
+
+        StdoutRisk [label="sys.stdout redirect\nPROCESS-GLOBAL\nconcurrent workers race\nparse errors may leak\nto daemon serve.log" fillcolor="#ffccbc" style="filled,dashed,rounded"]
+    }
+
+    // ================================================================
+    // BOUNDARY 4: ToolResult → Hooks → EventBus → SSE Cluster
+    // ================================================================
+    subgraph cluster_sse {
+        label="Boundary 4: ToolResult → amplifier_core Hooks → EventBus → SSE"
+        style=filled
+        bgcolor="#e3f2fd"
+        fontname="Helvetica"
+        fontsize=13
+
+        ToolResult [label="ToolResult\n(success: bool, output: json_str)\nMONOLITHIC — no streaming\nlarge prescan/analyze results\n= single payload" fillcolor="#90caf9"]
+        KernelHook [label="amplifier_core\nhooks.emit('tool:post', data)" fillcolor="#90caf9"]
+        WireEvents [label="session_handle.py:148-157\n_wire_events() hook fires\nevent_bus.publish(\n  session_id, 'tool:post', data)" fillcolor="#90caf9"]
+        EventBus [label="EventBus\nQueue(maxsize=10_000)\nput_nowait() → drop-oldest on full\nfilter_patterns: SCAFFOLDING ONLY\n← filter= param parsed but IGNORED" fillcolor="#90caf9"]
+        SSERoute [label="routes/events.py:19-57\n_event_generator()\nSSE: 'id:{seq}\\nevent:{name}\\ndata:{json}'\nStreamingResponse\n15s keepalive timeout" fillcolor="#90caf9"]
+    }
+
+    // ================================================================
+    // BOUNDARY 5: Dual prescan Path Cluster
+    // ================================================================
+    subgraph cluster_dualprescan {
+        label="Boundary 5: prescan — Dual Invocation Path (Recipe vs. LLM Tool)"
+        style=filled
+        bgcolor="#fff8dc"
+        fontname="Helvetica"
+        fontsize=13
+
+        RecipeBash [label="Recipe Bash Step\n(discovery-pipeline.yaml)\nsys.path.insert(0, 'modules/tool-dot-graph')\nfrom amplifier_module_tool_dot_graph import prescan\nresult = prescan.prescan_repo(repo_path)\n→ writes prescan-result.json\nBYPASSES amplifierd tool infra\nerrors → bash exit code" fillcolor="#ffd700"]
+        PrescanFn [label="prescan.prescan_repo(repo_path)\n(same function called both ways)" fillcolor="#ffd700"]
+        RecipeOutput [label="prescan-result.json\n→ next recipe step\n→ topic selection LLM" fillcolor="#ffd700"]
+        FallbackNote [label="Recipe fallback:\nif prescan module unavailable\n→ basic rglob() listing\nWARNING logged to stderr" fillcolor="#ffe4b5" style="filled,dashed,rounded"]
+    }
+
+    // ================================================================
+    // BOUNDARY 10: Bundle Agents → Sub-Sessions Cluster
+    // ================================================================
+    subgraph cluster_agents {
+        label="Boundary 10: Bundle Agents → Sub-Sessions — Self-Referential Integration"
+        style=filled
+        bgcolor="#f3e5f5"
+        fontname="Helvetica"
+        fontsize=13
+
+        OrchestratorRecipe [label="discovery-pipeline.yaml\norchestrates:\n1. prescan (bash step)\n2. topic selection (LLM)\n3. triplicate agent teams\n4. synthesis\n5. assemble" fillcolor="#ce93d8"]
+        AgentSubSession [label="Agent Sub-Sessions:\n• discovery-code-tracer\n• discovery-behavior-observer\n• discovery-integration-mapper\nmeta: tools: [{module: tool-dot-graph}]\n← HAS dot_graph tool available\n← USES the tool it investigates" fillcolor="#ce93d8"]
+        AgentOutputs [label=".discovery/modules/{slug}/\nagents/{type}/\n  diagram.dot\n  findings.md\n  unknowns.md\n← fed to synthesis step" fillcolor="#ce93d8"]
+        SynthesisAgent [label="Synthesis Agents:\n• discovery-synthesizer\n• discovery-overview-synthesizer\nuses dot_graph analyze/validate\nwrites overview.dot" fillcolor="#ce93d8"]
+    }
+
+    // ================================================================
+    // SHARED SETUP_HELPER dependency
+    // ================================================================
+    subgraph cluster_setup_helper {
+        label="Cross-Cutting: setup_helper.py — Shared Graphviz Detection"
+        style=filled
+        bgcolor="#fff2cc"
+        fontname="Helvetica"
+        fontsize=12
+
+        SetupHelper [label="setup_helper.check_environment()\nshutil.which('dot') + subprocess.run(['dot','-V'])\ncalled by validate Layer 3 AND render\nNO CACHING — runs on every call\nPlatform-specific install hints" fillcolor="#ffe999"]
+    }
+
+    // ================================================================
+    // CROSS-CLUSTER INTEGRATION EDGES
+    // ================================================================
+
+    // Bundle → Entry Point
+    BundleCache -> EntryPoint [label="bundle contains\npyproject.toml\n+ amplifier_module_tool_dot_graph" style=dashed]
+
+    // Entry Point → Loader
+    EntryPoint -> LoaderDiscover [label="importlib.metadata\nentry_points()"]
+    LoaderDiscover -> NameConvention [label="ep.name = 'tool-dot-graph'"]
+    NameConvention -> LoaderLoad [label="type='tool'\nmount_point='tools'"]
+
+    // Loader → Mount
+    LoaderLoad -> MountFn [label="calls mount(coordinator, config)"]
+    MountFn -> CoordSlot [label="coordinator.mount()"]
+    MountFn -> MountReturn [style=dashed color="#95a5a6"]
+
+    // Mount → Threading
+    CoordSlot -> WrapTools [label="after session.initialize()\ntools dict mutated in-place"]
+    WrapTools -> ThreadWrapper [label="wraps DotGraphTool\nin ThreadedToolWrapper"]
+    ThreadWrapper -> ThreadExecute [label="execute() intercepted"]
+
+    // Threading → Worker (EVENT LOOP BOUNDARY)
+    ThreadExecute -> Dispatcher [label="asyncio.to_thread(\n  asyncio.run, coro)\n← EVENT LOOP BOUNDARY" color="#2980b9" penwidth=2]
+
+    // Dispatcher → Operations
+    Dispatcher -> ValidateOp [label="validate"]
+    Dispatcher -> RenderOp [label="render"]
+    Dispatcher -> SetupOp [label="setup"]
+    Dispatcher -> AnalyzeOp [label="analyze"]
+    Dispatcher -> PrescanOp [label="prescan\n(via LLM tool)"]
+    Dispatcher -> AssembleOp [label="assemble"]
+
+    // Operations → subprocess (PROCESS BOUNDARY)
+    ValidateOp -> Graphviz [label="subprocess.run\n['dot','-Tcanon']\n30s timeout\n← PROCESS BOUNDARY" color="#e74c3c" penwidth=2]
+    RenderOp -> Graphviz [label="subprocess.run\n[engine,'-T{fmt}']\n30s timeout" color="#e74c3c" penwidth=2]
+    SetupOp -> Graphviz [label="shutil.which() +\nsubprocess.run(['dot','-V'])\nversion in STDERR" color="#e74c3c"]
+
+    // Shared setup_helper
+    ValidateOp -> SetupHelper [label="Layer 3:\ncheck_environment()\nbefore dot -Tcanon" style=dashed]
+    RenderOp -> SetupHelper [label="check_environment()\nbefore render" style=dashed]
+    SetupOp -> SetupHelper [label="IS setup_helper\n.check_environment()" style=dashed]
+
+    // assemble nested render call
+    AssembleOp -> RenderOp [label="render_png=True:\nrender.render_dot()\n← NESTED CALL\nBYPASSES coordinator" color="#9b59b6" style=dashed]
+
+    // analyze → assemble format coupling
+    AnalyzeOp -> AssembleOp [label="recursive cluster walk\nEXISTS BECAUSE OF\nassemble's cluster format" color="#e67e22" style=dashed arrowhead=none]
+
+    // stdout race risk
+    ValidateOp -> StdoutRisk [style=dashed color="#e74c3c"]
+    AnalyzeOp -> StdoutRisk [style=dashed color="#e74c3c"]
+
+    // Worker → ToolResult → SSE
+    Dispatcher -> ToolResult [label="ToolResult(success, json_str)\nmonolithic payload" color="#2980b9" penwidth=2]
+    ToolResult -> KernelHook [label="returned from execute()"]
+    KernelHook -> WireEvents [label="hooks.emit('tool:post')"]
+    WireEvents -> EventBus [label="event_bus.publish()\ncorrelation_id tagged" color="#2980b9"]
+    EventBus -> SSERoute [label="subscribe() async gen\nyields TransportEvent"]
+
+    // prescan dual path
+    RecipeBash -> PrescanFn [label="direct import\n(bypasses amplifierd)"]
+    PrescanOp -> PrescanFn [label="via tool call"]
+    PrescanFn -> RecipeOutput [label="recipe writes JSON\nto output_dir"]
+    RecipeBash -> FallbackNote [style=dashed color="#95a5a6"]
+
+    // Recipe → Agent sub-sessions
+    OrchestratorRecipe -> RecipeBash [label="bash step: prescan"]
+    OrchestratorRecipe -> AgentSubSession [label="dispatches triplicate\nagent teams"]
+    AgentSubSession -> AgentOutputs [label="writes\nartifacts"]
+    AgentOutputs -> SynthesisAgent [label="synthesis reads\nagent DOTs"]
+    SynthesisAgent -> AssembleOp [label="writes overview.dot\nthen calls assemble" style=dashed]
+
+    // Agents use the tool (self-referential)
+    AgentSubSession -> CoordSlot [label="sub-session has\ndot_graph tool\n← SELF-REFERENTIAL" color="#27ae60" style=dashed]
+
+    // Bundle agents relationship
+    BundleCache -> OrchestratorRecipe [label="bundle contains\nrecipes/" style=dashed color="#888888"]
+    BundleCache -> AgentSubSession [label="bundle contains\nagents/*.md" style=dashed color="#888888"]
+}
