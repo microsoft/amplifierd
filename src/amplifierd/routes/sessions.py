@@ -532,14 +532,13 @@ async def get_transcript(request: Request, session_id: str) -> dict:
 
     transcript_path = session_dir / "transcript.jsonl"
     if not transcript_path.exists():
-        detail = ProblemDetail(
-            type=ErrorTypeURI.SESSION_NOT_FOUND,
-            title="Session Not Found",
-            status=404,
-            detail=f"No transcript for session '{session_id}'",
-            instance=str(request.url.path),
-        )
-        raise HTTPException(status_code=404, detail=detail.model_dump(exclude_none=True))
+        return {
+            "session_id": session_id,
+            "transcript": [],
+            "messages": [],
+            "revision": None,
+            "last_updated": None,
+        }
     messages = []
     for line in transcript_path.read_text().strip().split("\n"):
         if line.strip():
