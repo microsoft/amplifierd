@@ -140,7 +140,14 @@ class SessionHandle:
             "delegate:agent_completed",
             "delegate:error",
         ]
-        all_events = list(ALL_EVENTS) + _delegate_events
+        # Provider token-delta streaming events — bridged to SSE so HTTP/WS
+        # clients (e.g. the Kepler desktop app) can render streaming replies.
+        _streaming_events = [
+            "llm:stream_block_start",
+            "llm:stream_block_delta",
+            "llm:stream_block_end",
+        ]
+        all_events = list(ALL_EVENTS) + _delegate_events + _streaming_events
 
         registered = 0
         for event_name in all_events:
