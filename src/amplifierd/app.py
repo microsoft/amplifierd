@@ -16,6 +16,7 @@ from amplifierd.config import DaemonSettings
 from amplifierd.errors import register_error_handlers
 from amplifierd.plugins import discover_plugins
 from amplifierd.routes import ALL_ROUTERS
+from amplifierd.security.hosts import HostValidationMiddleware, build_allowed_hosts
 from amplifierd.security.origins import build_allowed_origins
 from amplifierd.state.event_bus import EventBus
 from amplifierd.state.session_manager import SessionManager
@@ -329,6 +330,20 @@ def create_app(settings: DaemonSettings | None = None) -> FastAPI:
         from amplifierd.security.middleware import ApiKeyMiddleware
 
         app.add_middleware(ApiKeyMiddleware, api_key=resolved_settings.api_key)
+
+    # Host/Origin validation — always on, added last so it is the outermost
+    # layer. The auth middlewares above trust loopback clients, which a DNS
+    # rebinding attack turns into an attacker-controlled browser, so this must
+    # run before them.
+    allow_any_host = "*" in resolved_settings.allowed_hosts
+    app.add_middleware(
+        HostValidationMiddleware,
+        allowed_hosts=build_allowed_hosts(
+            bind_host=resolved_settings.host,
+            extra=resolved_settings.allowed_hosts + (extra_origins or []),
+        ),
+        allow_any=allow_any_host,
+    )
 
     register_error_handlers(app)
 
