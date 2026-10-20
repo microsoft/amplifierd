@@ -63,6 +63,7 @@ Settings resolve in priority order: CLI flags > environment variables > `~/.ampl
 | `cookie_samesite` | `AMPLIFIERD_COOKIE_SAMESITE` | `lax` | `SameSite` cookie attribute: `lax`, `strict`, or `none` |
 | `api_key` | `AMPLIFIERD_API_KEY` | `None` | Static API key required in `Authorization: Bearer` header |
 | `allowed_origins` | `AMPLIFIERD_ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins list |
+| `allowed_hosts` | `AMPLIFIERD_ALLOWED_HOSTS` | `[]` | Extra hostnames accepted in `Host`/`Origin` headers (localhost, IP literals, bind host, system hostname and Tailscale name are always allowed). Add your reverse-proxy hostname here; `["*"]` disables the check |
 
 For deployment modes (localhost, network-exposed, behind proxy) and detailed security configuration, see [docs/HOSTING.md](docs/HOSTING.md).
 

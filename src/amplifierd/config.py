@@ -79,6 +79,10 @@ class DaemonSettings(BaseSettings):
 
     # Security — opt-in, defaults preserve current localhost-only behavior
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
+    # Extra hostnames the daemon answers to (Host/Origin validation). localhost,
+    # loopback IPs, IP literals, the bind host, system hostname and Tailscale
+    # name are always allowed. ["*"] disables the check (e.g. behind a proxy).
+    allowed_hosts: list[str] = Field(default_factory=list)
     api_key: str | None = None
     tls_mode: str = "off"  # off | auto | manual
     tls_certfile: str | None = None

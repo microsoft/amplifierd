@@ -123,12 +123,12 @@ def test_allowed_origins_setting_present() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_config_table_has_15_rows() -> None:
-    """Config table must have 15 data rows (5 original + 10 new settings).
+def test_config_table_has_16_rows() -> None:
+    """Config table must have 16 data rows (5 original + 11 new settings).
 
-    The 10 new settings are: tls_mode, tls_certfile, tls_keyfile, auth_enabled,
+    The 11 new settings are: tls_mode, tls_certfile, tls_keyfile, auth_enabled,
     trust_proxy_auth, trusted_proxies, cookie_secure, cookie_samesite, api_key,
-    allowed_origins.
+    allowed_origins, allowed_hosts.
 
     We count rows by looking for lines starting with '|' inside the config table section.
     """
@@ -155,9 +155,9 @@ def test_config_table_has_15_rows() -> None:
                 # Table ended
                 break
 
-    assert row_count == 15, (
-        f"Expected 15 config table rows, found {row_count}. "
-        "Did you add all 10 new security/proxy/TLS settings?"
+    assert row_count == 16, (
+        f"Expected 16 config table rows, found {row_count}. "
+        "Did you add all 11 new security/proxy/TLS/host settings?"
     )
 
 
