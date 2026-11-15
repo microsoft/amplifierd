@@ -1,0 +1,115 @@
+{
+  "citations": [
+    {
+      "git_blob": "eba9b044714c25a5c8bc410837b190ad48daaa2d",
+      "path": "README.md",
+      "ref": "0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93",
+      "sha256": "78342d620f8a15d5dcf88cab8af65e3b558dd1e5c5ac17e539de92ac8e0094f3",
+      "url": "https://github.com/microsoft/amplifierd/blob/0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93/README.md"
+    },
+    {
+      "git_blob": "3c42789fa90422386452fe7aaa4643105fe75000",
+      "path": "docs/plugins.md",
+      "ref": "0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93",
+      "sha256": "2fb28826282dd9f7ad6063ac89986e2bb14a98bd0eb495ad0a4e290a0b04cd93",
+      "url": "https://github.com/microsoft/amplifierd/blob/0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93/docs/plugins.md"
+    },
+    {
+      "git_blob": "8d544356af1f19762e3eb4bae63b974d37ee53b5",
+      "path": "pyproject.toml",
+      "ref": "0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93",
+      "sha256": "e002738f050ba11d02b26750e1d1c2a72e1f16e0d76d5c69f91e6107e99851b9",
+      "url": "https://github.com/microsoft/amplifierd/blob/0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93/pyproject.toml"
+    }
+  ],
+  "consumer_cta": {
+    "basis": "Existing approved README route; target release assets/availability not freshly audited in this plan.",
+    "label": "Try the daemon",
+    "url": "https://github.com/microsoft/amplifierd#quick-start"
+  },
+  "display_name": "Amplifier daemon",
+  "edges": [
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "http"
+    },
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "state"
+    },
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "plugins"
+    },
+    {
+      "from": "self",
+      "relation": "uses",
+      "to": "core"
+    },
+    {
+      "from": "self",
+      "relation": "uses",
+      "to": "foundation"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "self",
+      "kind": "self",
+      "label": "Amplifier daemon",
+      "repository": "microsoft/amplifierd"
+    },
+    {
+      "id": "http",
+      "kind": "internal",
+      "label": "HTTP routes & SSE transport"
+    },
+    {
+      "id": "state",
+      "kind": "internal",
+      "label": "SessionManager / EventBus"
+    },
+    {
+      "id": "plugins",
+      "kind": "internal",
+      "label": "Plugin discovery"
+    },
+    {
+      "id": "core",
+      "kind": "external",
+      "label": "Amplifier Core",
+      "repository": "microsoft/amplifier-core"
+    },
+    {
+      "id": "foundation",
+      "kind": "external",
+      "label": "Amplifier Foundation",
+      "repository": "microsoft/amplifier-foundation"
+    }
+  ],
+  "notes": [
+    "Not a Constellation fleet supervisor or the independent AHP host.",
+    "Libraries own agent logic; daemon supplies transport/state layer and plugin discovery.",
+    "No AHP or full Constellation Connection conformity claim follows from HTTP transport."
+  ],
+  "purpose": "Expose Amplifier runtime capabilities through a local HTTP and event-streaming service.",
+  "ref": "0fee31a61e56348b9b347e3b0b8d3f8d6dbdea93",
+  "repository": "microsoft/amplifierd",
+  "roles": [],
+  "scope": "runtime HTTP integration",
+  "start_cta": {
+    "basis": "Existing approved README route; target release assets/availability not freshly audited in this plan.",
+    "label": "Try the daemon",
+    "url": "https://github.com/microsoft/amplifierd#quick-start"
+  },
+  "summary": "An HTTP/SSE wrapper over Amplifier Core and Foundation with pluggable endpoint extensions.",
+  "supports_roles": [
+    "Agent Instance",
+    "Connection",
+    "Tool"
+  ],
+  "visibility": "public"
+}
