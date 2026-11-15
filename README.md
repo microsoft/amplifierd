@@ -85,6 +85,27 @@ Plugins add custom endpoints to the daemon. See [docs/plugins.md](docs/plugins.m
 
 See [docs/api-usage.md](docs/api-usage.md) for the full guide on driving amplifierd over HTTP and SSE, including usage patterns, a Python client wrapper, and the endpoint reference.
 
+
+<!-- ecosystem-map:start -->
+## Where this fits
+
+An HTTP/SSE wrapper over Amplifier Core and Foundation with pluggable endpoint extensions.
+
+Supports: Agent Instance, Connection, Tool.
+
+![Ecosystem roles and component relationships](docs/ecosystem-map.svg)
+
+[Open the map](docs/ecosystem-map.svg) · [Product overview](https://microsoft.github.io/amplifier-constellation/projects/amplifierd/) · [Map guide](https://github.com/microsoft/amplifier-constellation/blob/main/docs/ecosystem-maps.md)
+
+<details>
+<summary>The five shared building blocks</summary>
+
+[![Experience, Conversation, Agent Instance, Connection and Tool](https://raw.githubusercontent.com/microsoft/amplifier-constellation/main/site/assets/art/building-blocks.png)](https://microsoft.github.io/amplifier-constellation/)
+
+</details>
+
+<!-- ecosystem-map:end -->
+
 ## Contributing
 
 > [!NOTE]
