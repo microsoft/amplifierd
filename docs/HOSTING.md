@@ -42,7 +42,7 @@ no cookies — the OS network stack is the security boundary.
 Tailscale from other devices.
 
 ```sh
-amplifierd serve --host 0.0.0.0
+AMPLIFIERD_API_KEY=mysecretkey amplifierd serve --host 0.0.0.0
 ```
 
 | Setting       | Value                                  |
@@ -54,12 +54,12 @@ amplifierd serve --host 0.0.0.0
 | Cookie SameSite | `lax`                               |
 
 When you bind to `0.0.0.0`, amplifierd detects the non-localhost binding at
-startup and enables TLS automatically (`--tls auto`). You should also set an
-API key so that only authorized clients can reach it:
-
-```sh
-AMPLIFIERD_API_KEY=mysecretkey amplifierd serve --host 0.0.0.0
-```
+startup and enables TLS automatically (`--tls auto`). It also refuses to start
+on a non-loopback address unless authentication is configured: an API key
+(`AMPLIFIERD_API_KEY` / `--api-key`) or session auth (`AMPLIFIERD_AUTH_ENABLED=true`).
+If access is already controlled some other way (for example a proxy that only
+forwards authenticated users), pass `--allow-unauthenticated`
+(`AMPLIFIERD_ALLOW_UNAUTHENTICATED_NETWORK=true`).
 
 Clients must pass the key in the `Authorization` header:
 
@@ -117,6 +117,7 @@ Or with environment variables:
 AMPLIFIERD_TLS_MODE=manual \
 AMPLIFIERD_TLS_CERTFILE=/etc/amplifierd/cert.pem \
 AMPLIFIERD_TLS_KEYFILE=/etc/amplifierd/key.pem \
+AMPLIFIERD_API_KEY=mysecretkey \
   amplifierd serve --host 0.0.0.0
 ```
 

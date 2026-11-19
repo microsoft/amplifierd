@@ -62,6 +62,7 @@ Settings resolve in priority order: CLI flags > environment variables > `~/.ampl
 | `cookie_secure` | `AMPLIFIERD_COOKIE_SECURE` | `auto` | Set `Secure` on cookies: `auto`, `true`, or `false` |
 | `cookie_samesite` | `AMPLIFIERD_COOKIE_SAMESITE` | `lax` | `SameSite` cookie attribute: `lax`, `strict`, or `none` |
 | `api_key` | `AMPLIFIERD_API_KEY` | `None` | Static API key required in `Authorization: Bearer` header |
+| `allow_unauthenticated_network` | `AMPLIFIERD_ALLOW_UNAUTHENTICATED_NETWORK` | `false` | Allow listening on a non-loopback host without `api_key` or `auth_enabled` (the daemon refuses otherwise). Use only when access is controlled some other way, e.g. a proxy |
 | `allowed_origins` | `AMPLIFIERD_ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins list |
 | `allowed_hosts` | `AMPLIFIERD_ALLOWED_HOSTS` | `[]` | Extra hostnames accepted in `Host`/`Origin` headers (localhost, IP literals, bind host, system hostname and Tailscale name are always allowed). Add your reverse-proxy hostname here; `["*"]` disables the check |
 
@@ -70,7 +71,7 @@ For deployment modes (localhost, network-exposed, behind proxy) and detailed sec
 CLI flags override everything:
 
 ```bash
-amplifierd serve --host 0.0.0.0 --port 9000 --log-level debug
+amplifierd serve --host 0.0.0.0 --port 9000 --log-level debug --api-key "$AMPLIFIERD_API_KEY"
 ```
 
 ---

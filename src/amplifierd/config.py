@@ -88,6 +88,9 @@ class DaemonSettings(BaseSettings):
     tls_certfile: str | None = None
     tls_keyfile: str | None = None
     auth_enabled: bool = False
+    # Listening on a non-loopback address requires api_key or auth_enabled,
+    # unless this is set (e.g. access is already controlled by a proxy).
+    allow_unauthenticated_network: bool = False
 
     # Proxy trust — which IPs to trust for X-Forwarded-For headers.
     # Defaults to localhost so same-machine proxies work without explicit config.
@@ -143,3 +146,23 @@ class DaemonSettings(BaseSettings):
             env_settings,
             JsonFileSettingsSource(settings_cls, cls._current_settings_dir),
         )
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether *host* only accepts connections from this machine."""
+    import ipaddress
+
+    name = host.strip().strip("[]").lower()
+    if name in ("localhost", "localhost.localdomain"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
+def unauthenticated_network_bind(settings: DaemonSettings, host: str) -> bool:
+    """Whether listening on *host* would serve network clients without authentication."""
+    if is_loopback_host(host) or settings.allow_unauthenticated_network:
+        return False
+    return not (settings.api_key or settings.auth_enabled)
