@@ -298,3 +298,50 @@ class TestServeApiKeyFlag:
         # We can't check os.environ after invoke since CliRunner may restore env.
         # Instead, verify the flag was accepted without error.
         assert result.output  # command ran successfully
+
+
+class TestServeRefusesUnauthenticatedNetworkBind:
+    """serve refuses a non-loopback host unless authentication is configured."""
+
+    @staticmethod
+    def _invoke(args: list[str], **settings_attrs: object) -> tuple[Result, MagicMock]:
+        from amplifierd.config import DaemonSettings
+
+        settings = DaemonSettings(**settings_attrs)  # type: ignore[arg-type]
+        runner = CliRunner()
+        with (
+            patch("uvicorn.run") as mock_run,
+            patch("amplifierd.config.DaemonSettings", return_value=settings),
+            patch("amplifierd.port_utils.find_available_port", return_value=(8410, False)),
+            patch("amplifierd.daemon_session.create_session_dir", return_value=MagicMock()),
+            patch("amplifierd.daemon_session.setup_session_log"),
+            patch("amplifierd.security.tls.resolve_tls", return_value={}),
+        ):
+            result = runner.invoke(main, ["serve", *args])
+        return result, mock_run
+
+    def test_network_host_without_auth_is_refused(self) -> None:
+        result, mock_run = self._invoke(["--host", "0.0.0.0"])
+        assert result.exit_code != 0
+        assert "Refusing to listen on 0.0.0.0" in result.output
+        mock_run.assert_not_called()
+
+    def test_network_host_with_api_key_starts(self) -> None:
+        result, mock_run = self._invoke(["--host", "0.0.0.0"], api_key="k")
+        assert result.exit_code == 0, result.output
+        mock_run.assert_called_once()
+
+    def test_network_host_with_auth_enabled_starts(self) -> None:
+        result, mock_run = self._invoke(["--host", "0.0.0.0"], auth_enabled=True)
+        assert result.exit_code == 0, result.output
+        mock_run.assert_called_once()
+
+    def test_network_host_with_explicit_opt_out_starts(self) -> None:
+        result, mock_run = self._invoke(["--host", "0.0.0.0"], allow_unauthenticated_network=True)
+        assert result.exit_code == 0, result.output
+        mock_run.assert_called_once()
+
+    def test_loopback_host_without_auth_starts(self) -> None:
+        result, mock_run = self._invoke(["--host", "127.0.0.1"])
+        assert result.exit_code == 0, result.output
+        mock_run.assert_called_once()

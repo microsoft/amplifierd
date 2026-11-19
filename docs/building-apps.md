@@ -259,7 +259,7 @@ Never add a separate login flow, token check, or session cookie system in your a
 
 ### Smart defaults from `--host 0.0.0.0`
 
-When the server is started with `--host 0.0.0.0` (network-exposed mode), amplifierd automatically enables TLS when available (via Tailscale or user-supplied certs) and activates auth enforcement when `AMPLIFIERD_TRUST_PROXY_AUTH` is set. You do not need to toggle any of this from your app. The right behaviour is wired to the host binding — your plugin code stays the same regardless of how the server is started.
+When the server is started with `--host 0.0.0.0` (network-exposed mode), amplifierd automatically enables TLS when available (via Tailscale or user-supplied certs) and refuses to start unless authentication is configured (an API key, session auth, or an explicit `--allow-unauthenticated` when a proxy controls access). You do not need to toggle any of this from your app. The right behaviour is wired to the host binding — your plugin code stays the same regardless of how the server is started.
 
 ### Port auto-increment
 

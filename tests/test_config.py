@@ -268,3 +268,24 @@ class TestDaemonSettings:
         monkeypatch.setenv("AMPLIFIERD_COOKIE_SAMESITE", "strict")
         settings = DaemonSettings(_settings_dir=tmp_path)
         assert settings.cookie_samesite == "strict"
+
+
+def test_is_loopback_host() -> None:
+    from amplifierd.config import is_loopback_host
+
+    for host in ("127.0.0.1", "127.0.0.5", "::1", "[::1]", "localhost", "LOCALHOST"):
+        assert is_loopback_host(host), host
+    for host in ("0.0.0.0", "::", "10.0.0.4", "my-host", "100.64.0.1"):
+        assert not is_loopback_host(host), host
+
+
+def test_unauthenticated_network_bind() -> None:
+    from amplifierd.config import DaemonSettings, unauthenticated_network_bind
+
+    assert unauthenticated_network_bind(DaemonSettings(), "0.0.0.0")
+    assert not unauthenticated_network_bind(DaemonSettings(), "127.0.0.1")
+    assert not unauthenticated_network_bind(DaemonSettings(api_key="k"), "0.0.0.0")
+    assert not unauthenticated_network_bind(DaemonSettings(auth_enabled=True), "0.0.0.0")
+    assert not unauthenticated_network_bind(
+        DaemonSettings(allow_unauthenticated_network=True), "0.0.0.0"
+    )

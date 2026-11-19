@@ -28,7 +28,7 @@ The Amplifier ecosystem has two library layers — `amplifier-core` (session lif
 | Contribution system | Not exposed (zero production callers; kept internal) |
 | gRPC | Not now. HTTP + SSE + WebSocket only. |
 | Hot-reload (dev) | uvicorn `--reload` flag passthrough |
-| Docker | Ready from day one. `amplifierd serve --host 0.0.0.0 --port 8410` |
+| Docker | Ready from day one. `amplifierd serve --host 0.0.0.0 --port 8410` with `AMPLIFIERD_API_KEY` set (required on a non-loopback host) |
 
 ## Project Structure
 

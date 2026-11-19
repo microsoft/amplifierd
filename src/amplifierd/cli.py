@@ -72,6 +72,13 @@ def main() -> None:
     default=False,
     help="Disable authentication even when TLS is active.",
 )
+@click.option(
+    "--allow-unauthenticated",
+    is_flag=True,
+    default=False,
+    help="Allow listening on a non-loopback address without --api-key or auth "
+    "(only when access is controlled some other way, e.g. a proxy).",
+)
 def serve(
     host: str | None,
     port: int | None,
@@ -84,6 +91,7 @@ def serve(
     ssl_certfile: str | None,
     ssl_keyfile: str | None,
     no_auth: bool,
+    allow_unauthenticated: bool,
 ) -> None:
     """Start the amplifierd HTTP server."""
     import json
@@ -121,10 +129,21 @@ def serve(
         os.environ["AMPLIFIERD_TLS_KEYFILE"] = ssl_keyfile
     if no_auth:
         os.environ["AMPLIFIERD_AUTH_ENABLED"] = "false"
+    if allow_unauthenticated:
+        os.environ["AMPLIFIERD_ALLOW_UNAUTHENTICATED_NETWORK"] = "true"
 
     settings = DaemonSettings()
 
     effective_host = host if host is not None else settings.host
+
+    from amplifierd.config import unauthenticated_network_bind
+
+    if unauthenticated_network_bind(settings, effective_host):
+        raise click.UsageError(
+            f"Refusing to listen on {effective_host} without authentication. "
+            "Set --api-key (or AMPLIFIERD_API_KEY), or AMPLIFIERD_AUTH_ENABLED=true. "
+            "If access is already controlled (e.g. by a proxy), pass --allow-unauthenticated."
+        )
     effective_log_level = log_level if log_level is not None else settings.log_level
 
     # Resolve port — auto-increment if the default is occupied, but honour an

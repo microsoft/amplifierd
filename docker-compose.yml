@@ -10,4 +10,7 @@ services:
       - ~/.amplifierd:/root/.amplifierd
     environment:
       - AMPLIFIERD_LOG_LEVEL=info
+      # Required: the container listens on all interfaces, and the daemon
+      # refuses to start there without authentication.
+      - AMPLIFIERD_API_KEY=${AMPLIFIERD_API_KEY:?set AMPLIFIERD_API_KEY}
     restart: unless-stopped
